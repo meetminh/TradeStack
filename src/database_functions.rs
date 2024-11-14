@@ -206,6 +206,70 @@ pub async fn cummulative_return(
     })
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct PricePoint {
+    time: DateTime<Utc>,
+    ticker: String,
+    close: f64,
+}
+
+pub async fn calculate_ema(
+    pool: &Pool<Postgres>,
+    ticker: String,
+    period: i32,
+) -> Result<f64, DatabaseError> {
+    // Validate inputs
+    if ticker.trim().is_empty() || ticker.len() > 10 {
+        return Err(DatabaseError::InvalidTicker);
+    }
+    if period < 1 {
+        return Err(DatabaseError::InvalidSmaPeriod(
+            "Period must be positive".to_string(),
+        ));
+    }
+
+    // Fetch the last n prices
+    let prices = sqlx::query_as!(
+        PricePoint,
+        r#"
+        SELECT 
+            time,
+            ticker,
+            close
+        FROM stock_data
+        WHERE ticker = $1
+        ORDER BY time DESC
+        LIMIT $2
+        "#,
+        ticker,
+        period as i64
+    )
+    .fetch_all(pool)
+    .await?;
+
+    // Check if we have enough data
+    if prices.is_empty() {
+        return Err(DatabaseError::SqlxError(sqlx::Error::RowNotFound));
+    }
+
+    // Reverse the prices to go from oldest to newest
+    let prices: Vec<f64> = prices.into_iter().map(|p| p.close).rev().collect();
+
+    // Calculate EMA
+    let smoothing = 2.0;
+    let multiplier = smoothing / (period as f64 + 1.0);
+
+    // Start with first price as initial EMA
+    let mut ema = prices[0];
+
+    // Calculate EMA for each subsequent price
+    for price in prices.iter().skip(1) {
+        ema = price * multiplier + ema * (1.0 - multiplier);
+    }
+
+    Ok(ema)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,6 +324,17 @@ mod tests {
         let return_calc = cummulative_return(&pool, query).await?;
 
         println!("Return percentage: {:.2}%", return_calc.return_percentage);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_calculate_ema() -> Result<(), DatabaseError> {
+        let pool = create_database_pool().await?;
+
+        let ema = calculate_ema(&pool, "AAPL".to_string(), 9).await?;
+
+        println!("9-period EMA for AAPL: ${:.2}", ema);
 
         Ok(())
     }
