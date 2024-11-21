@@ -270,6 +270,91 @@ pub async fn calculate_ema(
     Ok(ema)
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DrawdownResult {
+    pub max_drawdown_percentage: f64,
+    pub max_drawdown_value: f64,
+    pub peak_price: f64,
+    pub trough_price: f64,
+    pub peak_time: DateTime<Utc>,
+    pub trough_time: DateTime<Utc>,
+}
+
+pub async fn calculate_max_drawdown(
+    pool: &Pool<Postgres>,
+    ticker: String,
+    period: i32,
+) -> Result<DrawdownResult, DatabaseError> {
+    // Validate inputs
+    if ticker.trim().is_empty() || ticker.len() > 10 {
+        return Err(DatabaseError::InvalidTicker);
+    }
+    if period < 2 {
+        return Err(DatabaseError::InvalidSmaPeriod(
+            "Period must be at least 2 for drawdown calculation".to_string(),
+        ));
+    }
+
+    // Fetch prices in chronological order
+    let prices = sqlx::query_as!(
+        PricePoint,
+        r#"
+        SELECT
+            time,
+            ticker,
+            close
+        FROM stock_data
+        WHERE ticker = $1
+        ORDER BY time ASC
+        LIMIT $2
+        "#,
+        ticker,
+        period as i64
+    )
+    .fetch_all(pool)
+    .await?;
+
+    if prices.len() < 2 {
+        return Err(DatabaseError::SqlxError(sqlx::Error::RowNotFound));
+    }
+
+    let mut max_drawdown = 0.0;
+    let mut max_drawdown_value = 0.0;
+    let mut peak_price = f64::NEG_INFINITY;
+    let mut peak_time = prices[0].time;
+    let mut max_drawdown_peak_time = prices[0].time;
+    let mut max_drawdown_trough_time = prices[0].time;
+    let mut max_drawdown_peak_price = 0.0;
+    let mut max_drawdown_trough_price = 0.0;
+
+    for price_point in prices.iter() {
+        if price_point.close > peak_price {
+            peak_price = price_point.close;
+            peak_time = price_point.time;
+        }
+        let drawdown = (peak_price - price_point.close) / peak_price * 100.0;
+        let drawdown_value = peak_price - price_point.close;
+
+        if drawdown > max_drawdown {
+            max_drawdown = drawdown;
+            max_drawdown_value = drawdown_value;
+            max_drawdown_peak_time = peak_time;
+            max_drawdown_trough_time = price_point.time;
+            max_drawdown_peak_price = peak_price;
+            max_drawdown_trough_price = price_point.close;
+        }
+    }
+
+    Ok(DrawdownResult {
+        max_drawdown_percentage: max_drawdown,
+        max_drawdown_value,
+        peak_price: max_drawdown_peak_price,
+        trough_price: max_drawdown_trough_price,
+        peak_time: max_drawdown_peak_time,
+        trough_time: max_drawdown_trough_time,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -335,6 +420,25 @@ mod tests {
         let ema = calculate_ema(&pool, "AAPL".to_string(), 9).await?;
 
         println!("9-period EMA for AAPL: ${:.2}", ema);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_calculate_max_drawdown() -> Result<(), DatabaseError> {
+        let pool = create_database_pool().await?;
+
+        let drawdown = calculate_max_drawdown(&pool, "AAPL".to_string(), 30).await?;
+
+        println!(
+            "Maximum drawdown: {:.2}% (${:.2})\nPeak: ${:.2} at {}\nTrough: ${:.2} at {}",
+            drawdown.max_drawdown_percentage,
+            drawdown.max_drawdown_value,
+            drawdown.peak_price,
+            drawdown.peak_time,
+            drawdown.trough_price,
+            drawdown.trough_time
+        );
 
         Ok(())
     }
