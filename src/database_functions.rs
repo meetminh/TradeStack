@@ -228,7 +228,7 @@ pub async fn calculate_ema(
         ));
     }
 
-    // Fetch the last n prices
+    // Fetch enough prices for both SMA calculation and EMA calculation
     let prices = sqlx::query_as!(
         PricePoint,
         r#"
@@ -242,29 +242,40 @@ pub async fn calculate_ema(
         LIMIT $2
         "#,
         ticker,
-        period as i64
+        period as i64 * 2 // Fetch more data to ensure accuracy
     )
     .fetch_all(pool)
     .await?;
 
     // Check if we have enough data
-    if prices.is_empty() {
-        return Err(DatabaseError::SqlxError(sqlx::Error::RowNotFound));
+    if prices.len() < period as usize {
+        return Err(DatabaseError::InsufficientDataForMA(format!(
+            "Need at least {} data points",
+            period
+        )));
     }
 
-    // Reverse the prices to go from oldest to newest
+    // Reverse prices to go from oldest to newest
     let prices: Vec<f64> = prices.into_iter().map(|p| p.close).rev().collect();
+
+    // Calculate initial SMA
+    let initial_sma = prices[..period as usize].iter().sum::<f64>() / period as f64;
 
     // Calculate EMA
     let smoothing = 2.0;
     let multiplier = smoothing / (period as f64 + 1.0);
+    let mut ema = initial_sma;
 
-    // Start with first price as initial EMA
-    let mut ema = prices[0];
-
-    // Calculate EMA for each subsequent price
-    for price in prices.iter().skip(1) {
+    // Calculate EMA for each subsequent price after the initial period
+    for price in prices[period as usize..].iter() {
         ema = price * multiplier + ema * (1.0 - multiplier);
+    }
+
+    // Validate final EMA value
+    if !ema.is_finite() {
+        return Err(DatabaseError::InvalidCalculation(
+            "EMA calculation resulted in invalid value".to_string(),
+        ));
     }
 
     Ok(ema)
