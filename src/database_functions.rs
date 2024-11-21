@@ -416,6 +416,114 @@ pub async fn calculate_moving_average_of_price(
     Ok(record.moving_average)
 }
 
+pub async fn calculate_moving_average_of_returns(
+    pool: &Pool<Postgres>,
+    ticker: String,
+    start_date: DateTime<Utc>,
+    end_date: DateTime<Utc>,
+    ma_period: i32,
+) -> Result<f64, DatabaseError> {
+    // Validate inputs
+    if ticker.trim().is_empty() || ticker.len() > 10 {
+        return Err(DatabaseError::InvalidTicker);
+    }
+    if start_date >= end_date {
+        return Err(DatabaseError::InvalidDateRange);
+    }
+    if ma_period < 1 {
+        return Err(DatabaseError::InvalidSmaPeriod(
+            "Moving average period must be positive".to_string(),
+        ));
+    }
+
+    // Fetch the close prices
+    let prices = sqlx::query!(
+        r#"
+        SELECT
+            time,
+            close
+        FROM stock_data
+        WHERE ticker = $1
+        AND time >= $2
+        AND time <= $3
+        ORDER BY time ASC
+        "#,
+        ticker,
+        start_date,
+        end_date
+    )
+    .fetch_all(pool)
+    .await?;
+
+    // Check if we have enough data points
+    if prices.is_empty() {
+        return Err(DatabaseError::InsufficientData(
+            "No price data found for the specified period".to_string(),
+        ));
+    }
+
+    if prices.len() < 2 {
+        return Err(DatabaseError::InsufficientData(
+            "Need at least 2 price points to calculate returns".to_string(),
+        ));
+    }
+
+    // Calculate daily returns
+    let mut daily_returns: Vec<f64> = Vec::new();
+    for i in 1..prices.len() {
+        let previous_close = prices[i - 1].close;
+        let current_close = prices[i].close;
+
+        // Handle potential zero price
+        if previous_close == 0.0 {
+            return Err(DatabaseError::InsufficientData(
+                "Invalid price data: zero price encountered".to_string(),
+            ));
+        }
+
+        let daily_return = (current_close - previous_close) / previous_close * 100.0;
+
+        // Optional: Handle extreme returns if needed
+        if daily_return.abs() > 100.0 {
+            // Example threshold
+            return Err(DatabaseError::InsufficientData(format!(
+                "Suspicious return value detected: {}%",
+                daily_return
+            )));
+        }
+
+        daily_returns.push(daily_return);
+    }
+
+    // Check if we have enough data for the MA period
+    if daily_returns.len() < ma_period as usize {
+        return Err(DatabaseError::InsufficientDataForMA(format!(
+            "Need at least {} data points for {}-day MA, but only have {}",
+            ma_period,
+            ma_period,
+            daily_returns.len()
+        )));
+    }
+
+    // Calculate moving average of returns
+    let ma_return = daily_returns
+        .windows(ma_period as usize)
+        .map(|window| window.iter().sum::<f64>() / window.len() as f64)
+        .last()
+        .ok_or_else(|| {
+            DatabaseError::InsufficientDataForMA("Failed to calculate moving average".to_string())
+        })?;
+
+    // Optional: Check for NaN or infinite values
+    if !ma_return.is_finite() {
+        return Err(DatabaseError::InsufficientData(
+            "Calculation resulted in invalid value".to_string(),
+        ));
+    }
+
+    Ok(ma_return)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -522,6 +630,29 @@ mod tests {
             Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap().date(),
             Utc.with_ymd_and_hms(2024, 2, 1, 0, 0, 0).unwrap().date(),
             ma
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_calculate_moving_average_of_return() -> Result<(), DatabaseError> {
+        let pool = create_database_pool().await?;
+
+        let ma_return = calculate_moving_average_of_return(
+            &pool,
+            "AAPL".to_string(),
+            Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            Utc.with_ymd_and_hms(2024, 2, 1, 0, 0, 0).unwrap(),
+            20,
+        )
+        .await?;
+
+        println!(
+            "20-day moving average of return for AAPL between {} and {}: {:.2}%",
+            Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap().date(),
+            Utc.with_ymd_and_hms(2024, 2, 1, 0, 0, 0).unwrap().date(),
+            ma_return
         );
 
         Ok(())
