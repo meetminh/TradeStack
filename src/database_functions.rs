@@ -355,6 +355,67 @@ pub async fn calculate_max_drawdown(
     })
 }
 
+pub async fn calculate_moving_average_of_price(
+    pool: &Pool<Postgres>,
+    ticker: String,
+    start_date: DateTime<Utc>,
+    end_date: DateTime<Utc>,
+    ma_period: i32,
+) -> Result<f64, DatabaseError> {
+    // Validate ticker
+    if ticker.trim().is_empty() || ticker.len() > 10 {
+        return Err(DatabaseError::InvalidTicker);
+    }
+
+    // Validate date range
+    if start_date >= end_date {
+        return Err(DatabaseError::InvalidDateRange);
+    }
+
+    // Validate MA period
+    if ma_period < 1 {
+        return Err(DatabaseError::InvalidSmaPeriod(
+            "Moving average period must be positive".to_string(),
+        ));
+    }
+
+    let record = sqlx::query!(
+        r#"
+        WITH latest_ma AS (
+            SELECT 
+                time,
+                ticker,
+                close,
+                avg(close) OVER (
+                    PARTITION BY ticker 
+                    ORDER BY time 
+                    ROWS $4 PRECEDING
+                ) as moving_average
+            FROM stock_data
+            WHERE ticker = $1
+                AND time >= $2
+                AND time <= $3
+            ORDER BY time DESC
+            LIMIT 1
+        )
+        SELECT moving_average as "moving_average!"
+        FROM latest_ma
+        "#,
+        ticker,
+        start_date,
+        end_date,
+        ma_period - 1 // Subtract 1 because ROWS n PRECEDING includes the current row
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => DatabaseError::SqlxError(sqlx::Error::RowNotFound),
+        other => DatabaseError::SqlxError(other),
+    })?;
+
+    Ok(record.moving_average)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -438,6 +499,29 @@ mod tests {
             drawdown.peak_time,
             drawdown.trough_price,
             drawdown.trough_time
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_calculate_moving_average() -> Result<(), DatabaseError> {
+        let pool = create_database_pool().await?;
+
+        let ma = calculate_moving_average(
+            &pool,
+            "AAPL".to_string(),
+            Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            Utc.with_ymd_and_hms(2024, 2, 1, 0, 0, 0).unwrap(),
+            20,
+        )
+        .await?;
+
+        println!(
+            "20-day moving average for AAPL between {} and {}: ${:.2}",
+            Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap().date(),
+            Utc.with_ymd_and_hms(2024, 2, 1, 0, 0, 0).unwrap().date(),
+            ma
         );
 
         Ok(())
