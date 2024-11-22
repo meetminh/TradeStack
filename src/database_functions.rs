@@ -15,6 +15,8 @@ pub enum DatabaseError {
     InvalidPeriod(String),
     #[error("Insufficient data: {0}")]
     InsufficientData(String),
+    #[error("Insufficient data for MA: {0}")]
+    InsufficientDataForMA(String),
     #[error("Invalid calculation: {0}")]
     InvalidCalculation(String),
 }
