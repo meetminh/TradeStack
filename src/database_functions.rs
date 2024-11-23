@@ -440,6 +440,115 @@ pub async fn calculate_moving_average_of_returns(
     Ok(ma_return)
 }
 
+pub async fn calculate_rsi(
+    pool: &Pool<Postgres>,
+    ticker: String,
+    period: i32,
+) -> Result<f64, DatabaseError> {
+    // Validate inputs
+    validate_ticker(&ticker)?;
+    validate_period(period, "RSI period")?;
+
+    // Fetch prices with better ordering and limit explanation
+    let prices = sqlx::query!(
+        r#"
+        SELECT
+            time,
+            close
+        FROM stock_data
+        WHERE ticker = $1
+            AND time >= NOW() - INTERVAL '1 year'  -- Add reasonable time boundary
+        ORDER BY time DESC
+        LIMIT $2
+        "#,
+        ticker,
+        (period + 1) as i64
+    )
+    .fetch_all(pool)
+    .await?;
+
+    // Early validation with more specific error message
+    if prices.len() < (period + 1) as usize {
+        return Err(DatabaseError::InsufficientData(format!(
+            "Found {} data points but need {} for {}-period RSI calculation",
+            prices.len(),
+            period + 1,
+            period
+        )));
+    }
+
+    // Use iterator chain for better performance
+    let prices: Vec<f64> = prices.into_iter().map(|p| p.close).rev().collect();
+
+    // Improved price changes calculation with better memory usage
+    let (gains, losses): (Vec<f64>, Vec<f64>) = prices
+        .windows(2)
+        .map(|window| {
+            let change = window[1] - window[0];
+            if change > 0.0 {
+                (change, 0.0)
+            } else {
+                (0.0, change.abs())
+            }
+        })
+        .unzip();
+
+    // Calculate averages with bounds checking
+    let period_idx = period as usize;
+    let avg_gain = gains
+        .get(..period_idx)
+        .ok_or_else(|| DatabaseError::InvalidCalculation("Invalid gain slice".to_string()))?
+        .iter()
+        .sum::<f64>()
+        / period as f64;
+
+    let avg_loss = losses
+        .get(..period_idx)
+        .ok_or_else(|| DatabaseError::InvalidCalculation("Invalid loss slice".to_string()))?
+        .iter()
+        .sum::<f64>()
+        / period as f64;
+
+    // Enhanced edge case handling
+    match (avg_gain, avg_loss) {
+        (g, l) if l == 0.0 && g == 0.0 => Ok(50.0), // No price change
+        (_, l) if l == 0.0 => Ok(100.0),            // Only gains
+        (g, _) if g == 0.0 => Ok(0.0),              // Only losses
+        (g, l) => {
+            let rs = g / l;
+            let rsi = 100.0 - (100.0 / (1.0 + rs));
+
+            // Validate final result
+            if !rsi.is_finite() || rsi < 0.0 || rsi > 100.0 {
+                Err(DatabaseError::InvalidCalculation(format!(
+                    "RSI calculation resulted in invalid value: {}",
+                    rsi
+                )))
+            } else {
+                Ok(rsi)
+            }
+        }
+    }
+}
+
+// Helper function to validate period
+fn validate_period(period: i32, name: &str) -> Result<(), DatabaseError> {
+    if period <= 0 {
+        return Err(DatabaseError::InvalidInput(format!(
+            "{} must be positive, got {}",
+            name, period
+        )));
+    }
+    if period > 100 {
+        // Add reasonable upper bound
+        return Err(DatabaseError::InvalidInput(format!(
+            "{} too large, maximum is 100, got {}",
+            name, period
+        )));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -464,6 +573,18 @@ mod tests {
 
         let return_calc = calculate_return(&pool, "AAPL".to_string(), start_date, end_date).await?;
         assert!(return_calc.return_percentage.is_finite());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_calculate_rsi() -> Result<(), DatabaseError> {
+        let pool = create_test_db_pool().await?;
+
+        let rsi = calculate_rsi(&pool, "AAPL".to_string(), 14).await?;
+
+        println!("14-day RSI for AAPL: {:.2}%", rsi);
+        assert!(rsi >= 0.0 && rsi <= 100.0);
 
         Ok(())
     }
