@@ -29,6 +29,43 @@ pub struct StockDataPoint {
     pub sma: f64,
 }
 
+pub async fn calculate_start_date(
+    pool: &Pool<Postgres>,
+    ticker: String,
+    execution_date: DateTime<Utc>,
+    trading_days: i32,
+) -> Result<DateTime<Utc>, DatabaseError> {
+    // Validate inputs
+    validate_ticker(&ticker)?;
+    validate_period(trading_days, "Trading days")?;
+
+    let start_date = sqlx::query!(
+        r#"
+        SELECT time
+        FROM stock_data
+        WHERE ticker = $1 
+        AND time <= $2
+        ORDER BY time DESC
+        OFFSET $3
+        LIMIT 1
+        "#,
+        ticker,
+        execution_date,
+        trading_days as i64
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => DatabaseError::InsufficientData(format!(
+            "Not enough data points. Requested {} trading days but found fewer.",
+            trading_days
+        )),
+        other => DatabaseError::SqlxError(other),
+    })?;
+
+    Ok(start_date.time)
+}
+
 // Validation functions
 fn validate_ticker(ticker: &str) -> Result<(), DatabaseError> {
     if ticker.trim().is_empty() || ticker.len() > 10 {
@@ -111,6 +148,7 @@ pub struct CurrentPrice {
 pub async fn get_current_price(
     pool: &Pool<Postgres>,
     ticker: String,
+    execution_date: DateTime<Utc>,
 ) -> Result<CurrentPrice, DatabaseError> {
     validate_ticker(&ticker)?;
 
@@ -123,15 +161,20 @@ pub async fn get_current_price(
             close
         FROM stock_data
         WHERE ticker = $1
+        AND time <= $2
         ORDER BY time DESC
         LIMIT 1
         "#,
-        ticker
+        ticker,
+        execution_date
     )
     .fetch_one(pool)
     .await
     .map_err(|e| match e {
-        sqlx::Error::RowNotFound => DatabaseError::SqlxError(sqlx::Error::RowNotFound),
+        sqlx::Error::RowNotFound => DatabaseError::InsufficientData(format!(
+            "No price data found for {} at or before {}",
+            ticker, execution_date
+        )),
         other => DatabaseError::SqlxError(other),
     })
 }
