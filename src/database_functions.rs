@@ -366,20 +366,19 @@ pub async fn calculate_max_drawdown(
 pub async fn calculate_moving_average_of_price(
     pool: &Pool<Postgres>,
     ticker: String,
-    start_date: DateTime<Utc>,
-    end_date: DateTime<Utc>,
-    ma_period: i32,
+    execution_date: DateTime<Utc>,
+    period: i32,
 ) -> Result<f64, DatabaseError> {
     validate_ticker(&ticker)?;
-    validate_date_range(start_date, end_date)?;
-    validate_period(ma_period, "Moving average period")?;
+    validate_period(period, "Moving average period")?;
+
+    let start_date = calculate_start_date(pool, ticker.clone(), execution_date, period).await?;
 
     let record = sqlx::query!(
         r#"
         WITH latest_ma AS (
             SELECT 
                 avg(close) OVER (
-                    PARTITION BY ticker 
                     ORDER BY time 
                     ROWS $4 PRECEDING
                 ) as moving_average
@@ -395,13 +394,16 @@ pub async fn calculate_moving_average_of_price(
         "#,
         ticker,
         start_date,
-        end_date,
-        ma_period - 1
+        execution_date,
+        period - 1
     )
     .fetch_one(pool)
     .await
     .map_err(|e| match e {
-        sqlx::Error::RowNotFound => DatabaseError::SqlxError(sqlx::Error::RowNotFound),
+        sqlx::Error::RowNotFound => DatabaseError::InsufficientData(format!(
+            "Insufficient data for {}-day moving average calculation",
+            period
+        )),
         other => DatabaseError::SqlxError(other),
     })?;
 
