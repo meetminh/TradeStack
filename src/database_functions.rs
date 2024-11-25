@@ -19,6 +19,8 @@ pub enum DatabaseError {
     InsufficientDataForMA(String),
     #[error("Invalid calculation: {0}")]
     InvalidCalculation(String),
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -27,6 +29,16 @@ pub struct StockDataPoint {
     pub ticker: String,
     pub close: f64,
     pub sma: f64,
+}
+
+fn validate_price(price: f64, context: &str) -> Result<(), DatabaseError> {
+    if !price.is_finite() || price <= 0.0 {
+        return Err(DatabaseError::InvalidCalculation(format!(
+            "Invalid price in {}: {}",
+            context, price
+        )));
+    }
+    Ok(())
 }
 
 pub async fn calculate_start_date(
@@ -114,8 +126,7 @@ pub async fn calculate_sma(
 
     let start_date = calculate_start_date(pool, ticker.clone(), execution_date, period).await?;
 
-    let records = sqlx::query_as!(
-        StockDataPoint,
+    let record = sqlx::query!(
         r#"
         WITH sma_calculation AS (
             SELECT 
@@ -132,7 +143,7 @@ pub async fn calculate_sma(
                 AND time >= $2 
                 AND time <= $3
         )
-        SELECT sma
+        SELECT sma as "sma!"
         FROM sma_calculation
         ORDER BY time DESC
         LIMIT 1
