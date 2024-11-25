@@ -35,16 +35,21 @@ pub async fn calculate_start_date(
     execution_date: DateTime<Utc>,
     trading_days: i32,
 ) -> Result<DateTime<Utc>, DatabaseError> {
-    // Validate inputs
     validate_ticker(&ticker)?;
     validate_period(trading_days, "Trading days")?;
 
     let start_date = sqlx::query!(
         r#"
+        WITH first_available AS (
+            SELECT MIN(time) as min_date
+            FROM stock_data
+            WHERE ticker = $1
+        )
         SELECT time
-        FROM stock_data
+        FROM stock_data, first_available
         WHERE ticker = $1 
         AND time <= $2
+        AND time >= min_date
         ORDER BY time DESC
         OFFSET $3
         LIMIT 1
@@ -57,7 +62,7 @@ pub async fn calculate_start_date(
     .await
     .map_err(|e| match e {
         sqlx::Error::RowNotFound => DatabaseError::InsufficientData(format!(
-            "Not enough data points. Requested {} trading days but found fewer.",
+            "Not enough historical data available. Requested {} trading days but found fewer.",
             trading_days
         )),
         other => DatabaseError::SqlxError(other),
