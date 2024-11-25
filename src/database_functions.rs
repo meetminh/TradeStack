@@ -493,13 +493,15 @@ pub async fn calculate_moving_average_of_returns(
 pub async fn calculate_rsi(
     pool: &Pool<Postgres>,
     ticker: String,
+    execution_date: DateTime<Utc>,
     period: i32,
 ) -> Result<f64, DatabaseError> {
-    // Validate inputs
     validate_ticker(&ticker)?;
     validate_period(period, "RSI period")?;
 
-    // Fetch prices with better ordering and limit explanation
+    // Wir brauchen period + 1 Tage für die Berechnung der Preisänderungen
+    let start_date = calculate_start_date(pool, ticker.clone(), execution_date, period + 1).await?;
+
     let prices = sqlx::query!(
         r#"
         SELECT
@@ -507,17 +509,17 @@ pub async fn calculate_rsi(
             close
         FROM stock_data
         WHERE ticker = $1
-            AND time >= NOW() - INTERVAL '1 year'  -- Add reasonable time boundary
-        ORDER BY time DESC
-        LIMIT $2
+        AND time >= $2
+        AND time <= $3
+        ORDER BY time ASC
         "#,
         ticker,
-        (period + 1) as i64
+        start_date,
+        execution_date
     )
     .fetch_all(pool)
     .await?;
 
-    // Early validation with more specific error message
     if prices.len() < (period + 1) as usize {
         return Err(DatabaseError::InsufficientData(format!(
             "Found {} data points but need {} for {}-period RSI calculation",
@@ -527,10 +529,8 @@ pub async fn calculate_rsi(
         )));
     }
 
-    // Use iterator chain for better performance
-    let prices: Vec<f64> = prices.into_iter().map(|p| p.close).rev().collect();
+    let prices: Vec<f64> = prices.into_iter().map(|p| p.close).collect();
 
-    // Improved price changes calculation with better memory usage
     let (gains, losses): (Vec<f64>, Vec<f64>) = prices
         .windows(2)
         .map(|window| {
@@ -543,32 +543,18 @@ pub async fn calculate_rsi(
         })
         .unzip();
 
-    // Calculate averages with bounds checking
     let period_idx = period as usize;
-    let avg_gain = gains
-        .get(..period_idx)
-        .ok_or_else(|| DatabaseError::InvalidCalculation("Invalid gain slice".to_string()))?
-        .iter()
-        .sum::<f64>()
-        / period as f64;
+    let avg_gain = gains[..period_idx].iter().sum::<f64>() / period as f64;
+    let avg_loss = losses[..period_idx].iter().sum::<f64>() / period as f64;
 
-    let avg_loss = losses
-        .get(..period_idx)
-        .ok_or_else(|| DatabaseError::InvalidCalculation("Invalid loss slice".to_string()))?
-        .iter()
-        .sum::<f64>()
-        / period as f64;
-
-    // Enhanced edge case handling
     match (avg_gain, avg_loss) {
-        (g, l) if l == 0.0 && g == 0.0 => Ok(50.0), // No price change
-        (_, l) if l == 0.0 => Ok(100.0),            // Only gains
-        (g, _) if g == 0.0 => Ok(0.0),              // Only losses
+        (g, l) if l == 0.0 && g == 0.0 => Ok(50.0),
+        (_, l) if l == 0.0 => Ok(100.0),
+        (g, _) if g == 0.0 => Ok(0.0),
         (g, l) => {
             let rs = g / l;
             let rsi = 100.0 - (100.0 / (1.0 + rs));
 
-            // Validate final result
             if !rsi.is_finite() || rsi < 0.0 || rsi > 100.0 {
                 Err(DatabaseError::InvalidCalculation(format!(
                     "RSI calculation resulted in invalid value: {}",
