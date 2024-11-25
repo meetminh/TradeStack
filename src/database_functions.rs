@@ -391,7 +391,6 @@ pub async fn calculate_max_drawdown(
         trough_time: max_drawdown_trough_time,
     })
 }
-
 pub async fn calculate_moving_average_of_price(
     pool: &Pool<Postgres>,
     ticker: String,
