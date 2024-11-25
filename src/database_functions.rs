@@ -112,20 +112,25 @@ pub async fn calculate_sma(
     let records = sqlx::query_as!(
         StockDataPoint,
         r#"
-        SELECT 
-            time,
-            ticker,
-            close,
-            avg(close) OVER (
-                PARTITION BY ticker
-                ORDER BY time
-                ROWS BETWEEN $4 - 1 PRECEDING AND CURRENT ROW
-            ) AS "sma!"
-        FROM stock_data
-        WHERE ticker = $1 
-            AND time >= $2 
-            AND time <= $3
-        ORDER BY time
+        WITH sma_calculation AS (
+            SELECT 
+                time,
+                ticker,
+                close,
+                avg(close) OVER (
+                    PARTITION BY ticker
+                    ORDER BY time
+                    ROWS BETWEEN $4 - 1 PRECEDING AND CURRENT ROW
+                ) AS "sma!"
+            FROM stock_data
+            WHERE ticker = $1 
+                AND time >= $2 
+                AND time <= $3
+        )
+        SELECT sma
+        FROM sma_calculation
+        ORDER BY time DESC
+        LIMIT 1
         "#,
         ticker,
         start_date,
