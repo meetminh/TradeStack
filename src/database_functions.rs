@@ -103,7 +103,7 @@ pub async fn calculate_sma(
     ticker: String,
     execution_date: DateTime<Utc>,
     period: i32,
-) -> Result<Vec<StockDataPoint>, DatabaseError> {
+) -> Result<f64, DatabaseError> {
     validate_ticker(&ticker)?;
     validate_period(period, "SMA period")?;
 
