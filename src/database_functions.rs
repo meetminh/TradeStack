@@ -137,10 +137,24 @@ pub async fn calculate_sma(
         execution_date,
         period
     )
-    .fetch_all(pool)
-    .await?;
+    .fetch_one(pool)
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => DatabaseError::InsufficientData(format!(
+            "No data found for {} between {} and {}",
+            ticker, start_date, execution_date
+        )),
+        other => DatabaseError::SqlxError(other),
+    })?;
 
-    Ok(records)
+    // Validiere das Ergebnis
+    if !record.sma.is_finite() {
+        return Err(DatabaseError::InvalidCalculation(
+            "SMA calculation resulted in invalid value".to_string(),
+        ));
+    }
+
+    Ok(record.sma)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
