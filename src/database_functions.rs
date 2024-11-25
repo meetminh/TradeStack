@@ -227,29 +227,31 @@ pub async fn calculate_return(
 pub async fn calculate_ema(
     pool: &Pool<Postgres>,
     ticker: String,
+    execution_date: DateTime<Utc>,
     period: i32,
 ) -> Result<f64, DatabaseError> {
     validate_ticker(&ticker)?;
     validate_period(period, "EMA period")?;
 
-    let prices: Vec<(DateTime<Utc>, f64)> = sqlx::query!(
+    let start_date = calculate_start_date(pool, ticker.clone(), execution_date, period).await?;
+
+    let prices = sqlx::query!(
         r#"
         SELECT 
             time,
             close
         FROM stock_data
         WHERE ticker = $1
-        ORDER BY time DESC
-        LIMIT $2
+        AND time >= $2
+        AND time <= $3
+        ORDER BY time ASC
         "#,
         ticker,
-        period as i64 * 2
+        start_date,
+        execution_date
     )
     .fetch_all(pool)
-    .await?
-    .into_iter()
-    .map(|record| (record.time, record.close))
-    .collect();
+    .await?;
 
     if prices.len() < period as usize {
         return Err(DatabaseError::InsufficientData(format!(
@@ -258,7 +260,7 @@ pub async fn calculate_ema(
         )));
     }
 
-    let prices: Vec<f64> = prices.into_iter().map(|(_, price)| price).rev().collect();
+    let prices: Vec<f64> = prices.into_iter().map(|record| record.close).collect();
     let initial_sma = prices[..period as usize].iter().sum::<f64>() / period as f64;
 
     let smoothing = 2.0;
