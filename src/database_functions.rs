@@ -101,13 +101,13 @@ fn validate_period(period: i32, context: &str) -> Result<(), DatabaseError> {
 pub async fn calculate_sma(
     pool: &Pool<Postgres>,
     ticker: String,
-    start_date: DateTime<Utc>,
-    end_date: DateTime<Utc>,
-    sma_period: i32,
+    execution_date: DateTime<Utc>,
+    period: i32,
 ) -> Result<Vec<StockDataPoint>, DatabaseError> {
     validate_ticker(&ticker)?;
-    validate_date_range(start_date, end_date)?;
-    validate_period(sma_period, "SMA period")?;
+    validate_period(period, "SMA period")?;
+
+    let start_date = calculate_start_date(pool, ticker.clone(), execution_date, period).await?;
 
     let records = sqlx::query_as!(
         StockDataPoint,
@@ -124,13 +124,13 @@ pub async fn calculate_sma(
         FROM stock_data
         WHERE ticker = $1 
             AND time >= $2 
-            AND time < $3
+            AND time <= $3
         ORDER BY time
         "#,
         ticker,
         start_date,
-        end_date,
-        sma_period
+        execution_date,
+        period
     )
     .fetch_all(pool)
     .await?;
