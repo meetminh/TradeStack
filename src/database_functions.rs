@@ -263,6 +263,7 @@ pub async fn calculate_ema(
         WHERE ticker = $1
         AND time >= $2
         AND time <= $3
+        AND close > 0
         ORDER BY time ASC
         "#,
         ticker,
@@ -277,6 +278,10 @@ pub async fn calculate_ema(
             "Need at least {} data points",
             period
         )));
+    }
+
+    for price in &prices {
+        validate_price(price.close, "EMA calculation")?;
     }
 
     let prices: Vec<f64> = prices.into_iter().map(|record| record.close).collect();
@@ -395,26 +400,28 @@ pub async fn calculate_moving_average_of_price(
 
     let record = sqlx::query!(
         r#"
-        WITH latest_ma AS (
+        WITH ma_calculation AS (
             SELECT 
                 avg(close) OVER (
+                    PARTITION BY ticker
                     ORDER BY time 
-                    ROWS $4 PRECEDING
+                    ROWS BETWEEN $4 - 1 PRECEDING AND CURRENT ROW
                 ) as moving_average
             FROM stock_data
             WHERE ticker = $1
                 AND time >= $2
                 AND time <= $3
-            ORDER BY time DESC
-            LIMIT 1
+                AND close > 0
         )
         SELECT moving_average as "moving_average!"
-        FROM latest_ma
+        FROM ma_calculation
+        ORDER BY time DESC
+        LIMIT 1
         "#,
         ticker,
         start_date,
         execution_date,
-        period - 1
+        period
     )
     .fetch_one(pool)
     .await
@@ -425,6 +432,12 @@ pub async fn calculate_moving_average_of_price(
         )),
         other => DatabaseError::SqlxError(other),
     })?;
+
+    if !record.moving_average.is_finite() {
+        return Err(DatabaseError::InvalidCalculation(
+            "Moving average calculation resulted in invalid value".to_string(),
+        ));
+    }
 
     Ok(record.moving_average)
 }
