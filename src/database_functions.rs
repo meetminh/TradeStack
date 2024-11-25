@@ -293,10 +293,13 @@ pub struct DrawdownResult {
 pub async fn calculate_max_drawdown(
     pool: &Pool<Postgres>,
     ticker: String,
+    execution_date: DateTime<Utc>,
     period: i32,
 ) -> Result<DrawdownResult, DatabaseError> {
     validate_ticker(&ticker)?;
     validate_period(period, "Drawdown period")?;
+
+    let start_date = calculate_start_date(pool, ticker.clone(), execution_date, period).await?;
 
     let prices = sqlx::query!(
         r#"
@@ -305,11 +308,13 @@ pub async fn calculate_max_drawdown(
             close
         FROM stock_data
         WHERE ticker = $1
+        AND time >= $2
+        AND time <= $3
         ORDER BY time ASC
-        LIMIT $2
         "#,
         ticker,
-        period as i64
+        start_date,
+        execution_date
     )
     .fetch_all(pool)
     .await?;
