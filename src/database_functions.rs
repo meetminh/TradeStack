@@ -413,13 +413,14 @@ pub async fn calculate_moving_average_of_price(
 pub async fn calculate_moving_average_of_returns(
     pool: &Pool<Postgres>,
     ticker: String,
-    start_date: DateTime<Utc>,
-    end_date: DateTime<Utc>,
-    ma_period: i32,
+    execution_date: DateTime<Utc>,
+    period: i32,
 ) -> Result<f64, DatabaseError> {
     validate_ticker(&ticker)?;
-    validate_date_range(start_date, end_date)?;
-    validate_period(ma_period, "Moving average period")?;
+    validate_period(period, "Moving average period")?;
+
+    // Wir brauchen einen extra Tag für die Returnberechnung
+    let start_date = calculate_start_date(pool, ticker.clone(), execution_date, period + 1).await?;
 
     let prices = sqlx::query!(
         r#"
@@ -432,7 +433,7 @@ pub async fn calculate_moving_average_of_returns(
         "#,
         ticker,
         start_date,
-        end_date
+        execution_date
     )
     .fetch_all(pool)
     .await?;
@@ -468,15 +469,15 @@ pub async fn calculate_moving_average_of_returns(
         })
         .collect::<Result<Vec<f64>, DatabaseError>>()?;
 
-    if daily_returns.len() < ma_period as usize {
+    if daily_returns.len() < period as usize {
         return Err(DatabaseError::InsufficientData(format!(
             "Need at least {} data points for {}-day MA",
-            ma_period, ma_period
+            period, period
         )));
     }
 
     let ma_return = daily_returns
-        .windows(ma_period as usize)
+        .windows(period as usize)
         .last()
         .map(|window| window.iter().sum::<f64>() / window.len() as f64)
         .ok_or_else(|| {
