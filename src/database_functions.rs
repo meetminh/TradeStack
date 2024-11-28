@@ -104,14 +104,20 @@ fn validate_date_range(
 }
 
 fn validate_period(period: i32, context: &str) -> Result<(), DatabaseError> {
-    if period < 1 {
-        Err(DatabaseError::InvalidPeriod(format!(
+    if period <= 0 {
+        return Err(DatabaseError::InvalidPeriod(format!(
             "{} must be positive",
             context
-        )))
-    } else {
-        Ok(())
+        )));
     }
+    if period > 100 {
+        // Consistent upper bound
+        return Err(DatabaseError::InvalidPeriod(format!(
+            "{} too large, maximum is 100",
+            context
+        )));
+    }
+    Ok(())
 }
 
 // Main functions
@@ -615,24 +621,6 @@ pub async fn calculate_rsi(
             }
         }
     }
-}
-
-// Helper function to validate period
-fn validate_period(period: i32, name: &str) -> Result<(), DatabaseError> {
-    if period <= 0 {
-        return Err(DatabaseError::InvalidInput(format!(
-            "{} must be positive, got {}",
-            name, period
-        )));
-    }
-    if period > 100 {
-        // Add reasonable upper bound
-        return Err(DatabaseError::InvalidInput(format!(
-            "{} too large, maximum is 100, got {}",
-            name, period
-        )));
-    }
-    Ok(())
 }
 
 /// Calculates the standard deviation of prices for a given stock between two dates.
