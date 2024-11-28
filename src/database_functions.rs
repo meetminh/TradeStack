@@ -758,7 +758,7 @@ mod tests {
     async fn test_calculate_price_std_dev() -> Result<(), DatabaseError> {
         let pool = create_test_db_pool().await?;
 
-        let std_dev = calculate_price_std_dev(
+        let std_dev = calculate_std_deviation_of_price(
             &pool,
             "AAPL".to_string(),
             Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
