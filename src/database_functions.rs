@@ -214,49 +214,56 @@ pub async fn get_current_price(
     })
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ReturnCalculation {
-    pub return_percentage: f64,
-}
-
-pub async fn calculate_return(
+pub async fn get_cummulative_return(
     pool: &Pool<Postgres>,
     ticker: String,
-    start_date: DateTime<Utc>,
-    end_date: DateTime<Utc>,
-) -> Result<ReturnCalculation, DatabaseError> {
+    execution_date: DateTime<Utc>,
+    period: i32,
+) -> Result<f64, DatabaseError> {
+    // Validate inputs
     validate_ticker(&ticker)?;
-    validate_date_range(start_date, end_date)?;
+    validate_period(period, "Return period")?;
+
+    // Calculate start date using the helper function
+    let start_date = calculate_start_date(pool, ticker.clone(), execution_date, period).await?;
 
     let record = sqlx::query!(
         r#"
         WITH period_prices AS (
-            SELECT 
+            SELECT
                 first(close) as start_price,
                 last(close) as end_price
             FROM stock_data
             WHERE ticker = $1
             AND time >= $2
-            AND time < $3
+            AND time <= $3
         )
-        SELECT 
+        SELECT
             ((end_price - start_price) / start_price * 100) as "return_percentage!"
         FROM period_prices
         "#,
         ticker,
         start_date,
-        end_date,
+        execution_date,
     )
     .fetch_one(pool)
     .await
     .map_err(|e| match e {
-        sqlx::Error::RowNotFound => DatabaseError::SqlxError(sqlx::Error::RowNotFound),
+        sqlx::Error::RowNotFound => DatabaseError::InsufficientData(format!(
+            "No price data found for {} between {} and {}",
+            ticker, start_date, execution_date
+        )),
         other => DatabaseError::SqlxError(other),
     })?;
 
-    Ok(ReturnCalculation {
-        return_percentage: record.return_percentage,
-    })
+    // Validate result
+    if !record.return_percentage.is_finite() {
+        return Err(DatabaseError::InvalidCalculation(
+            "Return calculation resulted in invalid value".to_string(),
+        ));
+    }
+
+    Ok(record.return_percentage)
 }
 
 pub async fn calculate_ema(
@@ -733,11 +740,22 @@ mod tests {
     async fn test_calculate_return() -> Result<(), DatabaseError> {
         let pool = create_test_db_pool().await?;
 
-        let start_date = Utc.with_ymd_and_hms(2021, 1, 1, 0, 0, 0).unwrap();
-        let end_date = Utc.with_ymd_and_hms(2021, 2, 1, 0, 0, 0).unwrap();
+        let execution_date = Utc.with_ymd_and_hms(2024, 2, 1, 0, 0, 0).unwrap();
+        let return_calc = calculate_return(
+            &pool,
+            "AAPL".to_string(),
+            execution_date,
+            20, // 20-day return
+        )
+        .await?;
 
-        let return_calc = calculate_return(&pool, "AAPL".to_string(), start_date, end_date).await?;
+        println!(
+            "20-day return for AAPL: {:.2}% (${:.2})",
+            return_calc.return_percentage, return_calc.return_value
+        );
+
         assert!(return_calc.return_percentage.is_finite());
+        assert!(return_calc.return_value.is_finite());
 
         Ok(())
     }
