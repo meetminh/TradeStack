@@ -721,6 +721,106 @@ pub async fn calculate_std_deviation_of_price(
     Ok(std_dev)
 }
 
+/// Calculates the standard deviation of returns over a specified period.
+///
+/// # Arguments
+/// * `pool` - Database connection pool
+/// * `ticker` - Stock ticker symbol
+/// * `execution_date` - The end date for the calculation
+/// * `period` - Number of days to calculate the return standard deviation
+///
+/// # Returns
+/// * `Result<f64, DatabaseError>` - Standard deviation of returns in percentage
+pub async fn calculate_std_deviation_of_returns(
+    pool: &Pool<Postgres>,
+    ticker: String,
+    execution_date: DateTime<Utc>,
+    period: i32,
+) -> Result<f64, DatabaseError> {
+    // Validate inputs
+    validate_ticker(&ticker)?;
+    validate_period(period, "Return std dev period")?;
+
+    // Calculate start date using the helper function
+    let start_date = calculate_start_date(pool, ticker.clone(), execution_date, period).await?;
+
+    // Fetch prices
+    let prices = sqlx::query!(
+        r#"
+        SELECT
+            time,
+            close
+        FROM stock_data
+        WHERE ticker = $1
+        AND time >= $2
+        AND time <= $3
+        ORDER BY time ASC
+        "#,
+        ticker,
+        start_date,
+        execution_date
+    )
+    .fetch_all(pool)
+    .await?;
+
+    // Need at least 2 prices to calculate returns
+    if prices.len() < 2 {
+        return Err(DatabaseError::InsufficientData(
+            "Need at least 2 price points to calculate return standard deviation".to_string(),
+        ));
+    }
+
+    // Calculate daily returns
+    let mut daily_returns = Vec::new();
+    for i in 1..prices.len() {
+        let previous_close = prices[i - 1].close;
+        let current_close = prices[i].close;
+
+        // Avoid division by zero
+        if previous_close == 0.0 {
+            return Err(DatabaseError::InvalidCalculation(
+                "Invalid price data: zero price encountered".to_string(),
+            ));
+        }
+
+        let daily_return = (current_close - previous_close) / previous_close * 100.0;
+
+        // Validate return value
+        if !daily_return.is_finite() {
+            return Err(DatabaseError::InvalidCalculation(
+                "Return calculation resulted in invalid value".to_string(),
+            ));
+        }
+
+        daily_returns.push(daily_return);
+    }
+
+    // Calculate mean of returns
+    let mean_return = daily_returns.iter().sum::<f64>() / daily_returns.len() as f64;
+
+    // Calculate sum of squared differences from mean
+    let variance = daily_returns
+        .iter()
+        .map(|return_value| {
+            let diff = return_value - mean_return;
+            diff * diff
+        })
+        .sum::<f64>()
+        / (daily_returns.len() - 1) as f64;
+
+    // Calculate standard deviation
+    let std_dev = variance.sqrt();
+
+    // Validate final result
+    if !std_dev.is_finite() {
+        return Err(DatabaseError::InvalidCalculation(
+            "Standard deviation calculation resulted in invalid value".to_string(),
+        ));
+    }
+
+    Ok(std_dev)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -785,6 +885,25 @@ mod tests {
         .await?;
 
         println!("Price standard deviation for AAPL: ${:.2}", std_dev);
+        assert!(std_dev >= 0.0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_calculate_std_deviation_of_returns() -> Result<(), DatabaseError> {
+        let pool = create_test_db_pool().await?;
+
+        let execution_date = Utc.with_ymd_and_hms(2024, 2, 1, 0, 0, 0).unwrap();
+        let std_dev = calculate_std_deviation_of_returns(
+            &pool,
+            "AAPL".to_string(),
+            execution_date,
+            20, // 20-day period
+        )
+        .await?;
+
+        println!("20-day return standard deviation for AAPL: {:.2}%", std_dev);
         assert!(std_dev >= 0.0);
 
         Ok(())
