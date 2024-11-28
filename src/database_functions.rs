@@ -262,10 +262,10 @@ pub async fn get_cummulative_return(
         other => DatabaseError::SqlxError(other),
     })?;
 
-    // Validate result
+    // Add validation check for the result
     if !record.return_percentage.is_finite() {
         return Err(DatabaseError::InvalidCalculation(
-            "Return calculation resulted in invalid value".to_string(),
+            "Calculation resulted in invalid value".to_string(),
         ));
     }
 
@@ -459,6 +459,13 @@ pub async fn calculate_moving_average_of_price(
         )),
         other => DatabaseError::SqlxError(other),
     })?;
+
+    // Add validation check for the result
+    if !record.moving_average.is_finite() {
+        return Err(DatabaseError::InvalidCalculation(
+            "Calculation resulted in invalid value".to_string(),
+        ));
+    }
 
     Ok(record.moving_average)
 }
