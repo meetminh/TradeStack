@@ -628,6 +628,92 @@ fn validate_period(period: i32, name: &str) -> Result<(), DatabaseError> {
     Ok(())
 }
 
+/// Calculates the standard deviation of prices for a given stock between two dates.
+///
+/// # Arguments
+/// * `pool` - Database connection pool
+/// * `ticker` - Stock ticker symbol
+/// * `start_date` - Start of the calculation period
+/// * `end_date` - End of the calculation period
+///
+/// # Returns
+/// * `Result<f64, DatabaseError>` - Standard deviation in dollars
+///
+/// # Examples
+/// ```
+/// let std_dev = calculate_price_std_dev(
+///     &pool,
+///     "AAPL".to_string(),
+///     start_date,
+///     end_date
+/// ).await?;
+/// println!("Price standard deviation: ${:.2}", std_dev);
+/// ```
+pub async fn calculate_std_deviation_of_price(
+    pool: &Pool<Postgres>,
+    ticker: String,
+    execution_date: DateTime<Utc>,
+    period: i32,
+) -> Result<f64, DatabaseError> {
+    // Validate inputs
+    validate_ticker(&ticker)?;
+    validate_period(period, "Moving average period")?;
+
+    let start_date = calculate_start_date(pool, ticker.clone(), execution_date, period).await?;
+
+    // Fetch prices
+    let prices = sqlx::query!(
+        r#"
+        SELECT
+            time,
+            close
+        FROM stock_data
+        WHERE ticker = $1
+        AND time >= $2
+        AND time <= $3
+        ORDER BY time ASC
+        "#,
+        ticker,
+        start_date,
+        execution_date
+    )
+    .fetch_all(pool)
+    .await?;
+
+    // Check if we have enough data
+    if prices.len() < 2 {
+        return Err(DatabaseError::InsufficientData(
+            "Need at least 2 price points to calculate standard deviation".to_string(),
+        ));
+    }
+
+    // Calculate mean
+    let prices: Vec<f64> = prices.into_iter().map(|p| p.close).collect();
+    let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+
+    // Calculate sum of squared differences
+    let variance = prices
+        .iter()
+        .map(|price| {
+            let diff = price - mean;
+            diff * diff
+        })
+        .sum::<f64>()
+        / (prices.len() - 1) as f64;
+
+    // Calculate standard deviation
+    let std_dev = variance.sqrt();
+
+    // Validate result
+    if !std_dev.is_finite() {
+        return Err(DatabaseError::InvalidCalculation(
+            "Standard deviation calculation resulted in invalid value".to_string(),
+        ));
+    }
+
+    Ok(std_dev)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -664,6 +750,24 @@ mod tests {
 
         println!("14-day RSI for AAPL: {:.2}%", rsi);
         assert!(rsi >= 0.0 && rsi <= 100.0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_calculate_price_std_dev() -> Result<(), DatabaseError> {
+        let pool = create_test_db_pool().await?;
+
+        let std_dev = calculate_price_std_dev(
+            &pool,
+            "AAPL".to_string(),
+            Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            Utc.with_ymd_and_hms(2024, 2, 1, 0, 0, 0).unwrap(),
+        )
+        .await?;
+
+        println!("Price standard deviation for AAPL: ${:.2}", std_dev);
+        assert!(std_dev >= 0.0);
 
         Ok(())
     }
