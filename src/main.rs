@@ -21,10 +21,6 @@ fn main() -> Result<(), Box<dyn Error>> {
             match json_operations::validate_node(&deserialized_tree) {
                 Ok(()) => {
                     println!("Validation successful!");
-                    // Serialize Node back to JSON
-                    let serialized_json = json_operations::serialize_to_json(&deserialized_tree)?;
-                    println!("\nRe-serialized JSON:");
-                    println!("{}", serialized_json);
                 }
                 Err(e) => {
                     println!("Validation Error:");

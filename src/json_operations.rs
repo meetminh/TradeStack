@@ -12,6 +12,8 @@ pub enum ValidationError {
     InvalidOperator(String),
     #[error("Invalid weight: {0}")]
     InvalidWeight(f32),
+    #[error("Invalid Group: {0}")]
+    InvalidGroup(String),
 }
 
 pub fn deserialize_json(json_str: &str) -> Result<Node, Box<dyn StdError>> {
@@ -43,6 +45,31 @@ pub fn validate_node(node: &Node) -> Result<(), ValidationError> {
         }
         Node::Group { weight, children } | Node::Weighting { weight, children } => {
             validate_weight(*weight)?;
+
+            // Check if group is empty
+            if children.is_empty() {
+                return Err(ValidationError::InvalidGroup(
+                    "Group cannot be empty".to_string(),
+                ));
+            }
+
+            // Validate sum of weights equals 1.0
+            let weight_sum: f32 = children
+                .iter()
+                .map(|child| match child {
+                    Node::Asset { weight, .. } => *weight,
+                    _ => 0.0,
+                })
+                .sum();
+
+            if (weight_sum - 1.0).abs() > 0.0001 {
+                // Allow small floating-point differences
+                return Err(ValidationError::InvalidGroup(format!(
+                    "Group weights must sum to 1.0, got {}",
+                    weight_sum
+                )));
+            }
+
             children.iter().try_for_each(validate_node)?;
         }
         Node::Asset { weight, .. } => {
@@ -87,7 +114,7 @@ fn validate_condition(condition: &Condition) -> Result<(), ValidationError> {
     // Validate parameters based on function
     match condition.function.as_str() {
         // Functions requiring ticker and period
-        "cumulative_return" | "rsi" | "sma" | "ema" | "price_std_dev" | "returns_std_dev"
+        "cumulative_return" | "sma" | "ema" | "price_std_dev" | "returns_std_dev"
         | "ma_of_returns" | "ma_of_price" | "max_drawdown" => {
             if condition.params.len() != 2 {
                 return Err(ValidationError::InvalidParameters {
@@ -105,6 +132,26 @@ fn validate_condition(condition: &Condition) -> Result<(), ValidationError> {
                     message: format!("Period must be a number, got {}", condition.params[1]),
                 });
             }
+        }
+        "rsi" => {
+            if condition.params.len() != 2 {
+                return Err(ValidationError::InvalidParameters {
+                    function: condition.function.clone(),
+                    message: "RSI requires ticker and period".to_string(),
+                });
+            }
+            // Validate RSI period specifically
+            match condition.params[1].parse::<i32>() {
+                Ok(period) if period >= 14 && period <= 100 => Ok(()),
+                Ok(period) => Err(ValidationError::InvalidParameters {
+                    function: condition.function.clone(),
+                    message: format!("RSI period must be between 14 and 100, got {}", period),
+                }),
+                Err(_) => Err(ValidationError::InvalidParameters {
+                    function: condition.function.clone(),
+                    message: "RSI period must be a number".to_string(),
+                }),
+            }?;
         }
         // Functions requiring only ticker
         "current_price" => {
@@ -124,7 +171,7 @@ fn validate_condition(condition: &Condition) -> Result<(), ValidationError> {
     Ok(())
 }
 
-pub fn serialize_to_json(node: &Node) -> Result<String, Box<dyn StdError>> {
-    let serialized_json = serde_json::to_string_pretty(node)?;
-    Ok(serialized_json)
-}
+// pub fn serialize_to_json(node: &Node) -> Result<String, Box<dyn StdError>> {
+//     let serialized_json = serde_json::to_string_pretty(node)?;
+//     Ok(serialized_json)
+// }

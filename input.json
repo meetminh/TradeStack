@@ -6,7 +6,7 @@
       "type": "condition",
       "weight": 0.3,
       "condition": {
-        "function": "calculated_return",
+        "function": "cumulative_return",
         "params": ["VIX", "30"],
         "operator": ">",
         "value": 20
