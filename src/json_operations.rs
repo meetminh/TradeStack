@@ -26,10 +26,18 @@ pub enum ValidationError {
     MaxDepthExceeded(usize),
     #[error("Root node weight must be exactly 1.0, got {0}")]
     InvalidRootWeight(f32),
-    #[error("{} comparisons must use whole numbers, got {}", function, value)]
-    InvalidComparison(String),
-    #[error("Floating-point equality not allowed for {}", function)]
+
+    #[error("Floating-point equality not allowed for {0}")]
     FloatingPointEqualityNotAllowed(String),
+    #[error("Insufficient data points for {function}: minimum required is {required}, period specified is {specified}")]
+    InsufficientDataPoints {
+        function: String,
+        required: u16,
+        specified: u16,
+    },
+
+    #[error("{function} must be a positive integer, got {value}")]
+    NonIntegerValue { function: String, value: u32 },
 }
 
 pub fn deserialize_json(json_str: &str) -> Result<Node, Box<dyn StdError>> {
@@ -42,7 +50,8 @@ pub fn deserialize_json(json_str: &str) -> Result<Node, Box<dyn StdError>> {
 }
 
 pub fn validate_node(node: &Node) -> Result<(), ValidationError> {
-    validate_node_with_depth(node, 0)
+    validate_node_with_depth(node, 0)?;
+    Ok(())
 }
 
 fn validate_node_with_depth(node: &Node, depth: usize) -> Result<(), ValidationError> {
@@ -146,8 +155,8 @@ fn validate_condition(condition: &Condition) -> Result<(), ValidationError> {
     // Validate parameters based on function
     match condition.function.as_str() {
         // Functions requiring ticker and period
-        "cumulative_return" | "sma" | "ema" | "price_std_dev" | "returns_std_dev"
-        | "ma_of_returns" | "ma_of_price" | "max_drawdown" => {
+        "cumulative_return" | "price_std_dev" | "returns_std_dev" | "ma_of_returns"
+        | "ma_of_price" | "max_drawdown" => {
             if condition.params.len() != 2 {
                 return Err(ValidationError::InvalidParameters {
                     function: condition.function.clone(),
@@ -165,26 +174,13 @@ fn validate_condition(condition: &Condition) -> Result<(), ValidationError> {
                 });
             }
         }
-        "rsi" => {
+        "rsi" | "sma" | "ema" => {
             if condition.params.len() != 2 {
                 return Err(ValidationError::InvalidParameters {
                     function: condition.function.clone(),
-                    message: "RSI requires ticker and period".to_string(),
+                    message: format!("{} requires ticker and period", condition.function),
                 });
             }
-            // Validate RSI period specifically
-            match condition.params[1].parse::<i32>() {
-                Ok(period) if period >= 14 && period <= 100 => Ok(()),
-                Ok(period) => Err(ValidationError::InvalidParameters {
-                    function: condition.function.clone(),
-                    message: format!("RSI period must be between 14 and 100, got {}", period),
-                }),
-                Err(_) => Err(ValidationError::InvalidParameters {
-                    function: condition.function.clone(),
-                    message: "RSI period must be a number".to_string(),
-                }),
-            }?;
-            validate_value_range("rsi", condition.value as f32, 0.0, 100.0)?;
         }
         // Functions requiring only ticker
         "current_price" => {
@@ -201,11 +197,8 @@ fn validate_condition(condition: &Condition) -> Result<(), ValidationError> {
         _ => unreachable!(), // We've already validated function names
     }
 
-    // Add value range validations
+    // Add value range validations for floating-point functions
     match condition.function.as_str() {
-        "rsi" => {
-            validate_value_range("rsi", condition.value as f32, 1.0, 500.0)?;
-        }
         "cumulative_return" => {
             validate_value_range("cumulative_return", condition.value as f32, -100.0, 1000.0)?;
         }
@@ -220,37 +213,32 @@ fn validate_condition(condition: &Condition) -> Result<(), ValidationError> {
         _ => {}
     }
 
-    // Add period validations for all functions
-    if let Some(period_str) = condition.params.get(1) {
-        if let Ok(period) = period_str.parse::<i32>() {
-            match condition.function.as_str() {
-                "sma" | "ema" => validate_period_range(&condition.function, period, 1, 500)?,
-                "ma_of_returns" | "ma_of_price" => {
-                    validate_period_range(&condition.function, period, 1, 500)?
-                }
-                _ => validate_period_range(&condition.function, period, 1, 500)?,
-            }
-        }
-    }
-
     // Add integer validation for specific functions
     match condition.function.as_str() {
         "rsi" | "sma" | "ema" => {
-            if !condition.value.fract().eq(&0.0) {
-                return Err(ValidationError::InvalidComparison(format!(
-                    "{} comparisons must use whole numbers, got {}",
-                    condition.function, condition.value
-                )));
+            // Convert value to unsigned integer
+            let value = condition.value as u32;
+            if condition.value.fract() != 0.0 || condition.value < 0.0 {
+                return Err(ValidationError::NonIntegerValue {
+                    function: condition.function.clone(),
+                    value,
+                });
             }
 
-            // If it's an equality comparison, ensure it's using integers
-            if condition.operator == "==" {
-                if !condition.value.fract().eq(&0.0) {
-                    return Err(ValidationError::InvalidComparison(format!(
-                        "{} equality comparisons must use whole numbers, got {}",
-                        condition.function, condition.value
-                    )));
-                }
+            // Validate value ranges with unsigned integers (1 to 1000)
+            validate_value_range_uint(&condition.function, value, 1, 1000)?;
+
+            // Validate period is also a positive integer (1 to 1000)
+            if let Some(period_str) = condition.params.get(1) {
+                let period =
+                    period_str
+                        .parse::<u32>()
+                        .map_err(|_| ValidationError::InvalidParameters {
+                            function: condition.function.clone(),
+                            message: "Period must be a positive integer".to_string(),
+                        })?;
+
+                validate_period_range(&condition.function, period as i32, 1, 1000)?;
             }
         }
         // For floating point metrics, disallow equality comparisons
@@ -265,9 +253,44 @@ fn validate_condition(condition: &Condition) -> Result<(), ValidationError> {
         _ => unreachable!(),
     }
 
+    // Add minimum data points validation
+    match condition.function.as_str() {
+        "rsi" => {
+            let period: u16 = condition.params[1].parse().unwrap();
+            if period < 2 {
+                // RSI needs at least 2 data points to calculate
+                return Err(ValidationError::InsufficientDataPoints {
+                    function: condition.function.clone(),
+                    required: 2,
+                    specified: period,
+                });
+            }
+        }
+        "sma" | "ema" => {
+            let period: u16 = condition.params[1].parse().unwrap();
+            if period < 2 {
+                return Err(ValidationError::InsufficientDataPoints {
+                    function: condition.function.clone(),
+                    required: 2,
+                    specified: period,
+                });
+            }
+        }
+        "max_drawdown" => {
+            let period: u16 = condition.params[1].parse().unwrap();
+            if period < 2 {
+                return Err(ValidationError::InsufficientDataPoints {
+                    function: condition.function.clone(),
+                    required: 2,
+                    specified: period,
+                });
+            }
+        }
+        _ => {}
+    }
+
     Ok(())
 }
-
 fn validate_ticker(ticker: &str) -> Result<(), ValidationError> {
     if ticker.is_empty() || ticker.len() > 5 || !ticker.chars().all(|c| c.is_ascii_uppercase()) {
         return Err(ValidationError::InvalidTicker(ticker.to_string()));
@@ -300,6 +323,22 @@ fn validate_period_range(
         return Err(ValidationError::InvalidPeriodRange {
             function: function.to_string(),
             message: format!("Period must be between {} and {}, got {}", min, max, period),
+        });
+    }
+    Ok(())
+}
+
+// Update the validate_value_range_uint function
+fn validate_value_range_uint(
+    function: &str,
+    value: u32,
+    min: u32,
+    max: u32,
+) -> Result<(), ValidationError> {
+    if value < min || value > max {
+        return Err(ValidationError::InvalidValueRange {
+            function: function.to_string(),
+            message: format!("Value must be between {} and {}, got {}", min, max, value),
         });
     }
     Ok(())
