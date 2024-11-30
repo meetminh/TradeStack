@@ -26,6 +26,10 @@ pub enum ValidationError {
     MaxDepthExceeded(usize),
     #[error("Root node weight must be exactly 1.0, got {0}")]
     InvalidRootWeight(f32),
+    #[error("{} comparisons must use whole numbers, got {}", function, value)]
+    InvalidComparison(String),
+    #[error("Floating-point equality not allowed for {}", function)]
+    FloatingPointEqualityNotAllowed(String),
 }
 
 pub fn deserialize_json(json_str: &str) -> Result<Node, Box<dyn StdError>> {
@@ -227,6 +231,38 @@ fn validate_condition(condition: &Condition) -> Result<(), ValidationError> {
                 _ => validate_period_range(&condition.function, period, 1, 500)?,
             }
         }
+    }
+
+    // Add integer validation for specific functions
+    match condition.function.as_str() {
+        "rsi" | "sma" | "ema" => {
+            if !condition.value.fract().eq(&0.0) {
+                return Err(ValidationError::InvalidComparison(format!(
+                    "{} comparisons must use whole numbers, got {}",
+                    condition.function, condition.value
+                )));
+            }
+
+            // If it's an equality comparison, ensure it's using integers
+            if condition.operator == "==" {
+                if !condition.value.fract().eq(&0.0) {
+                    return Err(ValidationError::InvalidComparison(format!(
+                        "{} equality comparisons must use whole numbers, got {}",
+                        condition.function, condition.value
+                    )));
+                }
+            }
+        }
+        // For floating point metrics, disallow equality comparisons
+        "cumulative_return" | "price_std_dev" | "returns_std_dev" | "current_price"
+        | "ma_of_returns" | "ma_of_price" | "max_drawdown" => {
+            if condition.operator == "==" {
+                return Err(ValidationError::FloatingPointEqualityNotAllowed(
+                    condition.function.clone(),
+                ));
+            }
+        }
+        _ => unreachable!(),
     }
 
     Ok(())
