@@ -14,6 +14,12 @@ pub enum ValidationError {
     InvalidWeight(f32),
     #[error("Invalid Group: {0}")]
     InvalidGroup(String),
+    #[error("Invalid ticker: {0}")]
+    InvalidTicker(String),
+    #[error("Invalid value range for {function}: {message}")]
+    InvalidValueRange { function: String, message: String },
+    #[error("Invalid period range for {function}: {message}")]
+    InvalidPeriodRange { function: String, message: String },
 }
 
 pub fn deserialize_json(json_str: &str) -> Result<Node, Box<dyn StdError>> {
@@ -72,8 +78,9 @@ pub fn validate_node(node: &Node) -> Result<(), ValidationError> {
 
             children.iter().try_for_each(validate_node)?;
         }
-        Node::Asset { weight, .. } => {
+        Node::Asset { weight, ticker } => {
             validate_weight(*weight)?;
+            validate_ticker(ticker)?;
         }
     }
     Ok(())
@@ -152,6 +159,7 @@ fn validate_condition(condition: &Condition) -> Result<(), ValidationError> {
                     message: "RSI period must be a number".to_string(),
                 }),
             }?;
+            validate_value_range("rsi", condition.value as f32, 0.0, 100.0)?;
         }
         // Functions requiring only ticker
         "current_price" => {
@@ -168,6 +176,75 @@ fn validate_condition(condition: &Condition) -> Result<(), ValidationError> {
         _ => unreachable!(), // We've already validated function names
     }
 
+    // Add value range validations
+    match condition.function.as_str() {
+        "rsi" => {
+            validate_value_range("rsi", condition.value as f32, 1.0, 500.0)?;
+        }
+        "cumulative_return" => {
+            validate_value_range("cumulative_return", condition.value as f32, -100.0, 1000.0)?;
+        }
+        "price_std_dev" | "returns_std_dev" => {
+            validate_value_range(
+                &condition.function,
+                condition.value as f32,
+                0.0,
+                f32::INFINITY,
+            )?;
+        }
+        _ => {}
+    }
+
+    // Add period validations for all functions
+    if let Some(period_str) = condition.params.get(1) {
+        if let Ok(period) = period_str.parse::<i32>() {
+            match condition.function.as_str() {
+                "sma" | "ema" => validate_period_range(&condition.function, period, 1, 500)?,
+                "ma_of_returns" | "ma_of_price" => {
+                    validate_period_range(&condition.function, period, 1, 500)?
+                }
+                _ => validate_period_range(&condition.function, period, 1, 500)?,
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_ticker(ticker: &str) -> Result<(), ValidationError> {
+    if ticker.is_empty() || ticker.len() > 5 || !ticker.chars().all(|c| c.is_ascii_uppercase()) {
+        return Err(ValidationError::InvalidTicker(ticker.to_string()));
+    }
+    Ok(())
+}
+
+fn validate_value_range(
+    function: &str,
+    value: f32,
+    min: f32,
+    max: f32,
+) -> Result<(), ValidationError> {
+    if !(min..=max).contains(&value) {
+        return Err(ValidationError::InvalidValueRange {
+            function: function.to_string(),
+            message: format!("Value must be between {} and {}, got {}", min, max, value),
+        });
+    }
+    Ok(())
+}
+
+fn validate_period_range(
+    function: &str,
+    period: i32,
+    min: i32,
+    max: i32,
+) -> Result<(), ValidationError> {
+    if !(min..=max).contains(&period) {
+        return Err(ValidationError::InvalidPeriodRange {
+            function: function.to_string(),
+            message: format!("Period must be between {} and {}, got {}", min, max, period),
+        });
+    }
     Ok(())
 }
 
