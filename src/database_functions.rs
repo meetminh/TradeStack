@@ -41,7 +41,7 @@ fn validate_price(price: f64, context: &str) -> Result<(), DatabaseError> {
     Ok(())
 }
 
-pub async fn calculate_start_date(
+pub async fn get_start_date(
     pool: &Pool<Postgres>,
     ticker: String,
     execution_date: DateTime<Utc>,
@@ -121,7 +121,7 @@ fn validate_period(period: i32, context: &str) -> Result<(), DatabaseError> {
 }
 
 // Main functions
-pub async fn calculate_sma(
+pub async fn get_sma(
     pool: &Pool<Postgres>,
     ticker: String,
     execution_date: DateTime<Utc>,
@@ -130,7 +130,7 @@ pub async fn calculate_sma(
     validate_ticker(&ticker)?;
     validate_period(period, "SMA period")?;
 
-    let start_date = calculate_start_date(pool, ticker.clone(), execution_date, period).await?;
+    let start_date = get_start_date(pool, ticker.clone(), execution_date, period).await?;
 
     let record = sqlx::query!(
         r#"
@@ -220,7 +220,7 @@ pub async fn get_current_price(
     })
 }
 
-pub async fn get_cummulative_return(
+pub async fn get_cumulative_return(
     pool: &Pool<Postgres>,
     ticker: String,
     execution_date: DateTime<Utc>,
@@ -231,7 +231,7 @@ pub async fn get_cummulative_return(
     validate_period(period, "Return period")?;
 
     // Calculate start date using the helper function
-    let start_date = calculate_start_date(pool, ticker.clone(), execution_date, period).await?;
+    let start_date = get_start_date(pool, ticker.clone(), execution_date, period).await?;
 
     let record = sqlx::query!(
         r#"
@@ -272,7 +272,7 @@ pub async fn get_cummulative_return(
     Ok(record.return_percentage)
 }
 
-pub async fn calculate_ema(
+pub async fn get_ema(
     pool: &Pool<Postgres>,
     ticker: String,
     execution_date: DateTime<Utc>,
@@ -281,7 +281,7 @@ pub async fn calculate_ema(
     validate_ticker(&ticker)?;
     validate_period(period, "EMA period")?;
 
-    let start_date = calculate_start_date(pool, ticker.clone(), execution_date, period).await?;
+    let start_date = get_start_date(pool, ticker.clone(), execution_date, period).await?;
 
     let prices = sqlx::query!(
         r#"
@@ -343,7 +343,7 @@ pub struct DrawdownResult {
     pub trough_time: DateTime<Utc>,
 }
 
-pub async fn calculate_max_drawdown(
+pub async fn get_max_drawdown(
     pool: &Pool<Postgres>,
     ticker: String,
     execution_date: DateTime<Utc>,
@@ -352,7 +352,7 @@ pub async fn calculate_max_drawdown(
     validate_ticker(&ticker)?;
     validate_period(period, "Drawdown period")?;
 
-    let start_date = calculate_start_date(pool, ticker.clone(), execution_date, period).await?;
+    let start_date = get_start_date(pool, ticker.clone(), execution_date, period).await?;
 
     let prices = sqlx::query!(
         r#"
@@ -415,7 +415,7 @@ pub async fn calculate_max_drawdown(
         trough_time: max_drawdown_trough_time,
     })
 }
-pub async fn calculate_moving_average_of_price(
+pub async fn get_ma_of_price(
     pool: &Pool<Postgres>,
     ticker: String,
     execution_date: DateTime<Utc>,
@@ -424,7 +424,7 @@ pub async fn calculate_moving_average_of_price(
     validate_ticker(&ticker)?;
     validate_period(period, "Moving average period")?;
 
-    let start_date = calculate_start_date(pool, ticker.clone(), execution_date, period).await?;
+    let start_date = get_start_date(pool, ticker.clone(), execution_date, period).await?;
 
     let record = sqlx::query!(
         r#"
@@ -470,7 +470,7 @@ pub async fn calculate_moving_average_of_price(
     Ok(record.moving_average)
 }
 
-pub async fn calculate_moving_average_of_returns(
+pub async fn get_ma_of_returns(
     pool: &Pool<Postgres>,
     ticker: String,
     execution_date: DateTime<Utc>,
@@ -480,7 +480,7 @@ pub async fn calculate_moving_average_of_returns(
     validate_period(period, "Moving average period")?;
 
     // Wir brauchen einen extra Tag für die Returnberechnung
-    let start_date = calculate_start_date(pool, ticker.clone(), execution_date, period + 1).await?;
+    let start_date = get_start_date(pool, ticker.clone(), execution_date, period + 1).await?;
 
     let prices = sqlx::query!(
         r#"
@@ -553,7 +553,7 @@ pub async fn calculate_moving_average_of_returns(
     Ok(ma_return)
 }
 
-pub async fn calculate_rsi(
+pub async fn get_rsi(
     pool: &Pool<Postgres>,
     ticker: String,
     execution_date: DateTime<Utc>,
@@ -563,7 +563,7 @@ pub async fn calculate_rsi(
     validate_period(period, "RSI period")?;
 
     // Wir brauchen period + 1 Tage für die Berechnung der Preisänderungen
-    let start_date = calculate_start_date(pool, ticker.clone(), execution_date, period + 1).await?;
+    let start_date = get_start_date(pool, ticker.clone(), execution_date, period + 1).await?;
 
     let prices = sqlx::query!(
         r#"
@@ -651,7 +651,7 @@ pub async fn calculate_rsi(
 /// ).await?;
 /// println!("Price standard deviation: ${:.2}", std_dev);
 /// ```
-pub async fn calculate_std_deviation_of_price(
+pub async fn get_price_std_dev(
     pool: &Pool<Postgres>,
     ticker: String,
     execution_date: DateTime<Utc>,
@@ -661,7 +661,7 @@ pub async fn calculate_std_deviation_of_price(
     validate_ticker(&ticker)?;
     validate_period(period, "Moving average period")?;
 
-    let start_date = calculate_start_date(pool, ticker.clone(), execution_date, period).await?;
+    let start_date = get_start_date(pool, ticker.clone(), execution_date, period).await?;
 
     // Fetch prices
     let prices = sqlx::query!(
@@ -726,7 +726,7 @@ pub async fn calculate_std_deviation_of_price(
 ///
 /// # Returns
 /// * `Result<f64, DatabaseError>` - Standard deviation of returns in percentage
-pub async fn calculate_std_deviation_of_returns(
+pub async fn get_returns_std_dev(
     pool: &Pool<Postgres>,
     ticker: String,
     execution_date: DateTime<Utc>,
@@ -737,7 +737,7 @@ pub async fn calculate_std_deviation_of_returns(
     validate_period(period, "Return std dev period")?;
 
     // Calculate start date using the helper function
-    let start_date = calculate_start_date(pool, ticker.clone(), execution_date, period).await?;
+    let start_date = get_start_date(pool, ticker.clone(), execution_date, period).await?;
 
     // Fetch prices
     let prices = sqlx::query!(
@@ -832,11 +832,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_calculate_return() -> Result<(), DatabaseError> {
+    async fn test_get_cumulative_return() -> Result<(), DatabaseError> {
         let pool = create_test_db_pool().await?;
 
         let execution_date = Utc.with_ymd_and_hms(2024, 2, 1, 0, 0, 0).unwrap();
-        let return_calc = calculate_return(
+        let return_calc = get_cumulative_return(
             &pool,
             "AAPL".to_string(),
             execution_date,
@@ -856,10 +856,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_calculate_rsi() -> Result<(), DatabaseError> {
+    async fn test_get_rsi() -> Result<(), DatabaseError> {
         let pool = create_test_db_pool().await?;
 
-        let rsi = calculate_rsi(&pool, "AAPL".to_string(), 14).await?;
+        let rsi = get_rsi(&pool, "AAPL".to_string(), 14).await?;
 
         println!("14-day RSI for AAPL: {:.2}%", rsi);
         assert!(rsi >= 0.0 && rsi <= 100.0);
@@ -868,10 +868,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_calculate_price_std_dev() -> Result<(), DatabaseError> {
+    async fn test_get_price_std_dev() -> Result<(), DatabaseError> {
         let pool = create_test_db_pool().await?;
 
-        let std_dev = calculate_std_deviation_of_price(
+        let std_dev = get_price_std_dev(
             &pool,
             "AAPL".to_string(),
             Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
@@ -886,11 +886,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_calculate_std_deviation_of_returns() -> Result<(), DatabaseError> {
+    async fn test_get_returns_std_dev() -> Result<(), DatabaseError> {
         let pool = create_test_db_pool().await?;
 
         let execution_date = Utc.with_ymd_and_hms(2024, 2, 1, 0, 0, 0).unwrap();
-        let std_dev = calculate_std_deviation_of_returns(
+        let std_dev = get_returns_std_dev(
             &pool,
             "AAPL".to_string(),
             execution_date,

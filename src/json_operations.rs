@@ -1,12 +1,20 @@
-use crate::models::Node;
-use std::error::Error;
+use crate::models::{Condition, Node};
+use std::error::Error as StdError;
+use thiserror::Error;
 
-// Senior perspective: This function is the entry point for JSON deserialization and validation.
-// It combines parsing and custom validation in a single, public-facing function.
-//
-// High school perspective: This function takes a JSON string, turns it into a tree-like structure,
-// and checks if everything in that structure is correct according to our rules.
-pub fn deserialize_json(json_str: &str) -> Result<Node, Box<dyn Error>> {
+#[derive(Debug, Error)]
+pub enum ValidationError {
+    #[error("Unknown function: {0}")]
+    UnknownFunction(String),
+    #[error("Invalid parameters for function {function}: {message}")]
+    InvalidParameters { function: String, message: String },
+    #[error("Invalid operator: {0}")]
+    InvalidOperator(String),
+    #[error("Invalid weight: {0}")]
+    InvalidWeight(f32),
+}
+
+pub fn deserialize_json(json_str: &str) -> Result<Node, Box<dyn StdError>> {
     // Parse the JSON string into our Node structure
     let deserialized_tree: Node = serde_json::from_str(json_str)?;
     // Check if the tree structure is valid according to our custom rules
@@ -15,82 +23,108 @@ pub fn deserialize_json(json_str: &str) -> Result<Node, Box<dyn Error>> {
     Ok(deserialized_tree)
 }
 
-// Senior perspective: This recursive function traverses the Node tree, applying specific
-// validations based on the node type. It's a depth-first traversal ensuring all nodes are valid.
-//
-// High school perspective: This function checks each part of our tree structure. It looks at
-// each "node" (a part of the tree) and makes sure it follows our rules. It does this for every
-// single part, no matter how deep in the tree it is.
-fn validate_node(node: &Node) -> Result<(), Box<dyn Error>> {
+pub fn validate_node(node: &Node) -> Result<(), ValidationError> {
     match node {
-        // For nodes with children, we validate the weights and then recursively validate each child
-        Node::Root { children, .. }
-        | Node::Group { children, .. }
-        | Node::Weighting { children, .. } => {
-            validate_children_weights(children)?;
-            for child in children {
-                validate_node(child)?;
-            }
+        Node::Root { weight, children } => {
+            validate_weight(*weight)?;
+            children.iter().try_for_each(validate_node)?;
         }
-        // For condition nodes, we validate both the true and false branches
         Node::Condition {
-            if_true, if_false, ..
+            weight,
+            condition,
+            if_true,
+            if_false,
+            ..
         } => {
+            validate_weight(*weight)?;
+            validate_condition(condition)?;
             validate_node(if_true)?;
             validate_node(if_false)?;
         }
-        // For asset nodes, we validate the ticker symbol
-        Node::Asset { ticker, .. } => {
-            validate_ticker(ticker)?;
+        Node::Group { weight, children } | Node::Weighting { weight, children } => {
+            validate_weight(*weight)?;
+            children.iter().try_for_each(validate_node)?;
+        }
+        Node::Asset { weight, .. } => {
+            validate_weight(*weight)?;
         }
     }
     Ok(())
 }
 
-// Senior perspective: This function ensures that the weights of child nodes sum to 1,
-// which is crucial for maintaining the integrity of the weighting system in the tree.
-//
-// High school perspective: This function checks if the "weights" of all the parts add up to 1.
-// It's like making sure all the slices of a pie add up to a whole pie.
-fn validate_children_weights(children: &[Node]) -> Result<(), Box<dyn Error>> {
-    // Calculate the sum of all child weights
-    let total_weight: f32 = children
-        .iter()
-        .map(|child| match child {
-            Node::Root { weight, .. }
-            | Node::Group { weight, .. }
-            | Node::Weighting { weight, .. }
-            | Node::Condition { weight, .. }
-            | Node::Asset { weight, .. } => *weight,
-        })
-        .sum();
-
-    // Check if the total weight is close enough to 1 (allowing for small floating-point errors)
-    if (total_weight - 1.0).abs() > 1e-6 {
-        return Err(format!("Sum of child weights ({}) is not equal to 1", total_weight).into());
+fn validate_weight(weight: f32) -> Result<(), ValidationError> {
+    if !(0.0..=1.0).contains(&weight) {
+        return Err(ValidationError::InvalidWeight(weight));
     }
     Ok(())
 }
 
-// Senior perspective: This is a placeholder for more complex ticker validation.
-// In a production environment, this would likely involve API calls to financial data providers.
-//
-// High school perspective: This function checks if a stock symbol (ticker) is valid.
-// Right now, it just checks if the ticker isn't empty and isn't too long, but in a real system,
-// it would check against a list of real stock symbols.
-fn validate_ticker(ticker: &str) -> Result<(), Box<dyn Error>> {
-    if ticker.is_empty() || ticker.len() > 5 {
-        return Err(format!("Invalid ticker: {}", ticker).into());
+fn validate_condition(condition: &Condition) -> Result<(), ValidationError> {
+    // Validate function name
+    let valid_functions = [
+        "cumulative_return", // get_cumulative_return
+        "rsi",               // get_rsi
+        "sma",               // get_sma
+        "ema",               // get_ema
+        "price_std_dev",     // get_price_std_dev
+        "returns_std_dev",   // get_returns_std_dev
+        "ma_of_returns",     // get_ma_of_returns
+        "ma_of_price",       // get_ma_of_price
+        "current_price",     // get_current_price
+        "max_drawdown",      // get_max_drawdown
+    ];
+
+    if !valid_functions.contains(&condition.function.as_str()) {
+        return Err(ValidationError::UnknownFunction(condition.function.clone()));
     }
+
+    // Validate operator
+    let valid_operators = [">", "<", ">=", "<=", "=="];
+    if !valid_operators.contains(&condition.operator.as_str()) {
+        return Err(ValidationError::InvalidOperator(condition.operator.clone()));
+    }
+
+    // Validate parameters based on function
+    match condition.function.as_str() {
+        // Functions requiring ticker and period
+        "cumulative_return" | "rsi" | "sma" | "ema" | "price_std_dev" | "returns_std_dev"
+        | "ma_of_returns" | "ma_of_price" | "max_drawdown" => {
+            if condition.params.len() != 2 {
+                return Err(ValidationError::InvalidParameters {
+                    function: condition.function.clone(),
+                    message: format!(
+                        "Expected 2 parameters (ticker, period), got {}",
+                        condition.params.len()
+                    ),
+                });
+            }
+            // Validate period is a number
+            if let Err(_) = condition.params[1].parse::<i32>() {
+                return Err(ValidationError::InvalidParameters {
+                    function: condition.function.clone(),
+                    message: format!("Period must be a number, got {}", condition.params[1]),
+                });
+            }
+        }
+        // Functions requiring only ticker
+        "current_price" => {
+            if condition.params.len() != 1 {
+                return Err(ValidationError::InvalidParameters {
+                    function: condition.function.clone(),
+                    message: format!(
+                        "Expected 1 parameter (ticker), got {}",
+                        condition.params.len()
+                    ),
+                });
+            }
+        }
+        _ => unreachable!(), // We've already validated function names
+    }
+
     Ok(())
 }
 
-// Senior perspective: This function handles the serialization of our Node structure back into JSON.
-// It's the counterpart to deserialize_json, completing the round-trip of data transformation.
-//
-// High school perspective: This function takes our tree structure and turns it back into a JSON string.
-// It's like translating our special tree language back into something that can be easily shared or stored.
-pub fn serialize_to_json(node: &Node) -> Result<String, Box<dyn Error>> {
+pub fn serialize_to_json(node: &Node) -> Result<String, Box<dyn StdError>> {
     let serialized_json = serde_json::to_string_pretty(node)?;
     Ok(serialized_json)
 }

@@ -17,13 +17,23 @@ fn main() -> Result<(), Box<dyn Error>> {
             println!("\nDeserialized structure:");
             println!("{:#?}", deserialized_tree);
 
-            // Serialize Node back to JSON
-            let serialized_json = json_operations::serialize_to_json(&deserialized_tree)?;
-            println!("\nRe-serialized JSON:");
-            println!("{}", serialized_json);
+            // Validate the deserialized tree
+            match json_operations::validate_node(&deserialized_tree) {
+                Ok(()) => {
+                    println!("Validation successful!");
+                    // Serialize Node back to JSON
+                    let serialized_json = json_operations::serialize_to_json(&deserialized_tree)?;
+                    println!("\nRe-serialized JSON:");
+                    println!("{}", serialized_json);
+                }
+                Err(e) => {
+                    println!("Validation Error:");
+                    println!("{}", e);
+                }
+            }
         }
         Err(e) => {
-            println!("\nValidation Error:");
+            println!("\nDeserialization Error:");
             println!("{}", e);
         }
     }
