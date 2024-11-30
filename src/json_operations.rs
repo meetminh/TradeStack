@@ -2,6 +2,8 @@ use crate::models::{Condition, Node};
 use std::error::Error as StdError;
 use thiserror::Error;
 
+const MAX_TREE_DEPTH: usize = 100;
+
 #[derive(Debug, Error)]
 pub enum ValidationError {
     #[error("Unknown function: {0}")]
@@ -20,6 +22,10 @@ pub enum ValidationError {
     InvalidValueRange { function: String, message: String },
     #[error("Invalid period range for {function}: {message}")]
     InvalidPeriodRange { function: String, message: String },
+    #[error("Maximum tree depth of {0} exceeded")]
+    MaxDepthExceeded(usize),
+    #[error("Root node weight must be exactly 1.0, got {0}")]
+    InvalidRootWeight(f32),
 }
 
 pub fn deserialize_json(json_str: &str) -> Result<Node, Box<dyn StdError>> {
@@ -32,10 +38,23 @@ pub fn deserialize_json(json_str: &str) -> Result<Node, Box<dyn StdError>> {
 }
 
 pub fn validate_node(node: &Node) -> Result<(), ValidationError> {
+    validate_node_with_depth(node, 0)
+}
+
+fn validate_node_with_depth(node: &Node, depth: usize) -> Result<(), ValidationError> {
+    if depth > MAX_TREE_DEPTH {
+        return Err(ValidationError::MaxDepthExceeded(MAX_TREE_DEPTH));
+    }
+
     match node {
         Node::Root { weight, children } => {
-            validate_weight(*weight)?;
-            children.iter().try_for_each(validate_node)?;
+            // Strict validation for root weight
+            if (*weight - 1.0).abs() > 0.0001 {
+                return Err(ValidationError::InvalidRootWeight(*weight));
+            }
+            children
+                .iter()
+                .try_for_each(|child| validate_node_with_depth(child, depth + 1))?;
         }
         Node::Condition {
             weight,
@@ -46,8 +65,8 @@ pub fn validate_node(node: &Node) -> Result<(), ValidationError> {
         } => {
             validate_weight(*weight)?;
             validate_condition(condition)?;
-            validate_node(if_true)?;
-            validate_node(if_false)?;
+            validate_node_with_depth(if_true, depth + 1)?;
+            validate_node_with_depth(if_false, depth + 1)?;
         }
         Node::Group { weight, children } | Node::Weighting { weight, children } => {
             validate_weight(*weight)?;
@@ -76,7 +95,9 @@ pub fn validate_node(node: &Node) -> Result<(), ValidationError> {
                 )));
             }
 
-            children.iter().try_for_each(validate_node)?;
+            children
+                .iter()
+                .try_for_each(|child| validate_node_with_depth(child, depth + 1))?;
         }
         Node::Asset { weight, ticker } => {
             validate_weight(*weight)?;
