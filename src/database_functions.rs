@@ -202,9 +202,7 @@ pub async fn get_current_price(
             close
         FROM stock_data
         WHERE ticker = $1
-        AND time <= $2
-        ORDER BY time DESC
-        LIMIT 1
+        AND time = $2
         "#,
         ticker,
         execution_date

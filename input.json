@@ -39,6 +39,6 @@
         "if_false": { "type": "asset", "ticker": "VOOG", "weight": 1.0 }
       }
     },
-    { "type": "asset", "ticker": "SHY", "weight": 0.7 }
+    { "type": "asset", "ticker": "SHY", "weight": 0.5 }
   ]
 }
