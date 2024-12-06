@@ -819,88 +819,154 @@ mod tests {
     use super::*;
     use chrono::TimeZone;
 
+    async fn setup_test_pool() -> Result<Pool<Postgres>, DatabaseError> {
+        PgPoolOptions::new()
+            .max_connections(5)
+            .connect("postgresql://admin:quest@localhost:9000/qdb")
+            .await
+            .map_err(DatabaseError::SqlxError)
+    }
+
+    // Helper function tests
+    #[test]
+    fn test_validate_ticker() {
+        assert!(validate_ticker("AAPL").is_ok());
+        assert!(validate_ticker("").is_err());
+        assert!(validate_ticker("TOOLONG").is_err());
+        assert!(validate_ticker("aapl").is_err()); // lowercase should fail
+    }
+
+    #[test]
+    fn test_validate_period() {
+        assert!(validate_period(14, "Test").is_ok());
+        assert!(validate_period(0, "Test").is_err());
+        assert!(validate_period(101, "Test").is_err());
+    }
+
+    #[test]
+    fn test_validate_date_range() {
+        let start = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
+        let end = Utc.with_ymd_and_hms(2020, 12, 31, 0, 0, 0).unwrap();
+        assert!(validate_date_range(start, end).is_ok());
+        assert!(validate_date_range(end, start).is_err());
+    }
+
+    // Database function tests
     #[tokio::test]
     async fn test_get_current_price() -> Result<(), DatabaseError> {
-        let pool = create_test_db_pool().await?;
+        let pool = setup_test_pool().await?;
+        let execution_date = Utc.with_ymd_and_hms(2015, 1, 1, 0, 0, 0).unwrap();
 
-        let current_price = get_current_price(&pool, "AAPL".to_string()).await?;
+        let current_price = get_current_price(&pool, "AAPL".to_string(), execution_date).await?;
         assert!(current_price.close > 0.0);
+        assert_eq!(current_price.ticker, "AAPL");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_sma() -> Result<(), DatabaseError> {
+        let pool = setup_test_pool().await?;
+        let execution_date = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
+
+        let sma = get_sma(&pool, "AAPL".to_string(), execution_date, 20).await?;
+        assert!(sma.is_finite());
+        assert!(sma > 0.0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_ema() -> Result<(), DatabaseError> {
+        let pool = setup_test_pool().await?;
+        let execution_date = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
+
+        let ema = get_ema(&pool, "AAPL".to_string(), execution_date, 20).await?;
+        assert!(ema.is_finite());
+        assert!(ema > 0.0);
 
         Ok(())
     }
 
     #[tokio::test]
     async fn test_get_cumulative_return() -> Result<(), DatabaseError> {
-        let pool = create_test_db_pool().await?;
+        let pool = setup_test_pool().await?;
+        let execution_date = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
 
-        let execution_date = Utc.with_ymd_and_hms(2024, 2, 1, 0, 0, 0).unwrap();
-        let return_calc = get_cumulative_return(
-            &pool,
-            "AAPL".to_string(),
-            execution_date,
-            20, // 20-day return
-        )
-        .await?;
+        let return_value =
+            get_cumulative_return(&pool, "AAPL".to_string(), execution_date, 20).await?;
 
-        println!(
-            "20-day return for AAPL: {:.2}% (${:.2})",
-            return_calc.return_percentage, return_calc.return_value
-        );
+        assert!(return_value.is_finite());
+        println!("20-day return: {:.2}%", return_value);
 
-        assert!(return_calc.return_percentage.is_finite());
-        assert!(return_calc.return_value.is_finite());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_ma_of_price() -> Result<(), DatabaseError> {
+        let pool = setup_test_pool().await?;
+        let execution_date = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
+
+        let ma = get_ma_of_price(&pool, "AAPL".to_string(), execution_date, 20).await?;
+        assert!(ma.is_finite());
+        assert!(ma > 0.0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_ma_of_returns() -> Result<(), DatabaseError> {
+        let pool = setup_test_pool().await?;
+        let execution_date = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
+
+        let ma = get_ma_of_returns(&pool, "AAPL".to_string(), execution_date, 20).await?;
+        assert!(ma.is_finite());
 
         Ok(())
     }
 
     #[tokio::test]
     async fn test_get_rsi() -> Result<(), DatabaseError> {
-        let pool = create_test_db_pool().await?;
+        let pool = setup_test_pool().await?;
+        let execution_date = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
 
-        let rsi = get_rsi(&pool, "AAPL".to_string(), 14).await?;
-
-        println!("14-day RSI for AAPL: {:.2}%", rsi);
+        let rsi = get_rsi(&pool, "AAPL".to_string(), execution_date, 14).await?;
         assert!(rsi >= 0.0 && rsi <= 100.0);
 
         Ok(())
     }
 
+    // Error case tests
     #[tokio::test]
-    async fn test_get_price_std_dev() -> Result<(), DatabaseError> {
-        let pool = create_test_db_pool().await?;
+    async fn test_invalid_ticker() -> Result<(), DatabaseError> {
+        let pool = setup_test_pool().await?;
+        let execution_date = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
 
-        let std_dev = get_price_std_dev(
-            &pool,
-            "AAPL".to_string(),
-            Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
-            Utc.with_ymd_and_hms(2024, 2, 1, 0, 0, 0).unwrap(),
-        )
-        .await?;
-
-        println!("Price standard deviation for AAPL: ${:.2}", std_dev);
-        assert!(std_dev >= 0.0);
+        let result = get_current_price(&pool, "INVALID".to_string(), execution_date).await;
+        assert!(matches!(result, Err(DatabaseError::InsufficientData(_))));
 
         Ok(())
     }
 
     #[tokio::test]
-    async fn test_get_returns_std_dev() -> Result<(), DatabaseError> {
-        let pool = create_test_db_pool().await?;
+    async fn test_invalid_period() -> Result<(), DatabaseError> {
+        let pool = setup_test_pool().await?;
+        let execution_date = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
 
-        let execution_date = Utc.with_ymd_and_hms(2024, 2, 1, 0, 0, 0).unwrap();
-        let std_dev = get_returns_std_dev(
-            &pool,
-            "AAPL".to_string(),
-            execution_date,
-            20, // 20-day period
-        )
-        .await?;
-
-        println!("20-day return standard deviation for AAPL: {:.2}%", std_dev);
-        assert!(std_dev >= 0.0);
+        let result = get_sma(&pool, "AAPL".to_string(), execution_date, 0).await;
+        assert!(matches!(result, Err(DatabaseError::InvalidPeriod(_))));
 
         Ok(())
     }
 
-    // Add more tests as needed...
+    #[tokio::test]
+    async fn test_future_date() -> Result<(), DatabaseError> {
+        let pool = setup_test_pool().await?;
+        let future_date = Utc::now() + chrono::Duration::days(365);
+
+        let result = get_current_price(&pool, "AAPL".to_string(), future_date).await;
+        assert!(matches!(result, Err(DatabaseError::InsufficientData(_))));
+
+        Ok(())
+    }
 }

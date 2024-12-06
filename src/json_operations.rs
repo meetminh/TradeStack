@@ -24,9 +24,6 @@ pub enum ValidationError {
     InvalidPeriodRange { function: String, message: String },
     #[error("Maximum tree depth of {0} exceeded")]
     MaxDepthExceeded(usize),
-    #[error("Root node weight must be exactly 1.0, got {0}")]
-    InvalidRootWeight(f32),
-
     #[error("Floating-point equality not allowed for {0}")]
     FloatingPointEqualityNotAllowed(String),
     #[error("Insufficient data points for {function}: minimum required is {required}, period specified is {specified}")]
@@ -60,11 +57,26 @@ fn validate_node_with_depth(node: &Node, depth: usize) -> Result<(), ValidationE
     }
 
     match node {
-        Node::Root { weight, children } => {
-            // Strict validation for root weight
-            if (*weight - 1.0).abs() > 0.0001 {
-                return Err(ValidationError::InvalidRootWeight(*weight));
+        Node::Root {
+            weight: _,
+            children,
+        } => {
+            // Add root children weight validation
+            let total_weight: f32 = children
+                .iter()
+                .map(|child| match child {
+                    Node::Condition { weight, .. }
+                    | Node::Asset { weight, .. }
+                    | Node::Group { weight, .. }
+                    | Node::Weighting { weight, .. } => *weight,
+                    _ => 0.0,
+                })
+                .sum();
+
+            if (total_weight - 1.0).abs() > 0.0001 {
+                return Err(ValidationError::InvalidWeight(total_weight));
             }
+
             children
                 .iter()
                 .try_for_each(|child| validate_node_with_depth(child, depth + 1))?;
@@ -348,3 +360,110 @@ fn validate_value_range_uint(
 //     let serialized_json = serde_json::to_string_pretty(node)?;
 //     Ok(serialized_json)
 // }
+
+//TEST FILES
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_root_weight_validation() {
+        let json = r#"{
+            "type": "root",
+            "weight": 1.0,
+            "children": [
+                { "type": "asset", "ticker": "SPY", "weight": 0.3 },
+                { "type": "asset", "ticker": "QQQ", "weight": 0.3 }
+            ]
+        }"#;
+
+        let result = deserialize_json(json);
+        assert!(
+            result.is_err(),
+            "Should fail when children weights don't sum to 1.0"
+        );
+    }
+
+    #[test]
+    fn test_group_weight_validation() {
+        let json = r#"{
+            "type": "root",
+            "weight": 1.0,
+            "children": [{
+                "type": "group",
+                "weight": 1.0,
+                "children": [
+                    { "type": "asset", "ticker": "SPY", "weight": 0.3 },
+                    { "type": "asset", "ticker": "QQQ", "weight": 0.3 }
+                ]
+            }]
+        }"#;
+
+        let result = deserialize_json(json);
+        assert!(
+            result.is_err(),
+            "Should fail when group weights don't sum to 1.0"
+        );
+    }
+
+    #[test]
+    fn test_ticker_validation() {
+        let json = r#"{
+            "type": "root",
+            "weight": 1.0,
+            "children": [
+                { "type": "asset", "ticker": "spy", "weight": 1.0 }
+            ]
+        }"#;
+
+        let result = deserialize_json(json);
+        assert!(result.is_err(), "Should fail with lowercase ticker");
+    }
+
+    #[test]
+    fn test_condition_validation() {
+        let json = r#"{
+            "type": "root",
+            "weight": 1.0,
+            "children": [{
+                "type": "condition",
+                "weight": 1.0,
+                "condition": {
+                    "function": "unknown_function",
+                    "params": ["SPY", "14"],
+                    "operator": ">",
+                    "value": 30
+                },
+                "if_true": { "type": "asset", "ticker": "SPY", "weight": 1.0 },
+                "if_false": { "type": "asset", "ticker": "QQQ", "weight": 1.0 }
+            }]
+        }"#;
+
+        let result = deserialize_json(json);
+        assert!(result.is_err(), "Should fail with unknown function");
+    }
+
+    #[test]
+    fn test_valid_strategy() {
+        let json = r#"{
+            "type": "root",
+            "weight": 1.0,
+            "children": [{
+                "type": "condition",
+                "weight": 1.0,
+                "condition": {
+                    "function": "rsi",
+                    "params": ["SPY", "14"],
+                    "operator": "<",
+                    "value": 30
+                },
+                "if_true": { "type": "asset", "ticker": "SPY", "weight": 1.0 },
+                "if_false": { "type": "asset", "ticker": "QQQ", "weight": 1.0 }
+            }]
+        }"#;
+
+        let result = deserialize_json(json);
+        assert!(result.is_ok(), "Should accept valid strategy");
+    }
+}
