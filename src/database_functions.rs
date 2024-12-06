@@ -86,10 +86,17 @@ pub async fn get_start_date(
 // Validation functions
 fn validate_ticker(ticker: &str) -> Result<(), DatabaseError> {
     if ticker.trim().is_empty() || ticker.len() > 10 {
-        Err(DatabaseError::InvalidTicker)
-    } else {
-        Ok(())
+        return Err(DatabaseError::InvalidTicker);
     }
+
+    if !ticker
+        .chars()
+        .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '.' || c == '-')
+    {
+        return Err(DatabaseError::InvalidTicker);
+    }
+
+    Ok(())
 }
 
 fn validate_date_range(
