@@ -4,7 +4,7 @@
   "children": [
     {
       "type": "condition",
-      "weight": 0.3,
+      "weight": 0.5,
       "condition": {
         "function": "cumulative_return",
         "params": ["VIX", "30"],
