@@ -371,13 +371,13 @@ pub struct DrawdownResult {
     pub max_drawdown_value: f64,
     pub peak_price: f64,
     pub trough_price: f64,
-    pub peak_time: DateTime<Utc>,
-    pub trough_time: DateTime<Utc>,
+    pub peak_time: NaiveDateTime,
+    pub trough_time: NaiveDateTime,
 }
 
 #[derive(Debug)]
 struct PriceResult {
-    time: DateTime<Utc>,
+    time: NaiveDateTime,
     close: f64,
 }
 
@@ -392,6 +392,7 @@ pub async fn get_max_drawdown(
 
     let start_date = get_start_date(pool, &ticker, &execution_date, period).await?;
 
+    println!("Start fetch");
     let prices = sqlx::query(
         r#"
         SELECT
@@ -413,6 +414,8 @@ pub async fn get_max_drawdown(
     })
     .fetch_all(pool)
     .await?;
+
+    println!("End fetch");
 
     if prices.len() < 2 {
         return Err(DatabaseError::InsufficientData(
@@ -820,7 +823,6 @@ pub async fn get_price_std_dev(
 /// * `Result<f64, DatabaseError>` - Standard deviation of returns in percentage
 #[derive(Debug)]
 struct StdDevPriceResult {
-    time: DateTime<Utc>,
     close: f64,
 }
 
@@ -854,7 +856,6 @@ pub async fn get_returns_std_dev(
     .bind(&start_date)
     .bind(&execution_date)
     .map(|row: sqlx::postgres::PgRow| StdDevPriceResult {
-        time: row.get("time"),
         close: row.get("close"),
     })
     .fetch_all(pool)

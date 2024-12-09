@@ -38,9 +38,9 @@
 // }
 
 mod database_functions;
-// mod json_operations;
-// mod models;
-// mod strategy_executor;
+mod json_operations;
+mod models;
+mod strategy_executor;
 
 //use chrono::Utc;
 use chrono::NaiveDateTime;
@@ -105,73 +105,73 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .await?;
     info!("Database connection test successful");
 
-    let ticker = "AAPL".to_string();
+    // let ticker = "AAPL".to_string();
+    // let execution_date = Utc
+    //     .with_ymd_and_hms(2005, 12, 12, 5, 0, 0)
+    //     .unwrap()
+    //     .to_rfc3339();
+    // let period: i64 = 20;
+
+    // // Test all database functions
+    // println!("\n=== Testing Database Functions ===");
+
+    // let current_price =
+    //     database_functions::get_current_price(&pool, &ticker, &execution_date).await?;
+    // println!("Current Price: ${:.2}", current_price.close);
+
+    // let sma = database_functions::get_sma(&pool, &ticker, &execution_date, period).await?;
+    // println!("SMA ({}): ${:.2}", period, sma);
+
+    // let ema = database_functions::get_ema(&pool, &ticker, &execution_date, period).await?;
+    // println!("EMA ({}): ${:.2}", period, ema);
+
+    // let cumulative_return =
+    //     database_functions::get_cumulative_return(&pool, &ticker, &execution_date, period).await?;
+    // println!("Cumulative Return ({}): {:.2}%", period, cumulative_return);
+
+    // let ma_price =
+    //     database_functions::get_ma_of_price(&pool, &ticker, &execution_date, period).await?;
+    // println!("MA of Price ({}): ${:.2}", period, ma_price);
+
+    // let ma_returns =
+    //     database_functions::get_ma_of_returns(&pool, &ticker, &execution_date, period).await?;
+    // println!("MA of Returns ({}): {:.2}%", period, ma_returns);
+
+    // let rsi = database_functions::get_rsi(&pool, &ticker, &execution_date, 14).await?;
+    // println!("RSI (14): {:.2}", rsi);
+
+    // let drawdown =
+    //     database_functions::get_max_drawdown(&pool, &ticker, &execution_date, period).await?;
+    // println!("Max Drawdown: {:.2}%", drawdown.max_drawdown_percentage);
+
+    // let std_dev =
+    //     database_functions::get_returns_std_dev(&pool, &ticker, &execution_date, period).await?;
+    // println!("Returns StdDev: {:.2}%", std_dev);
+
+    info!("Database connection test successful");
+    // Read strategy from JSON file
     let execution_date = Utc
         .with_ymd_and_hms(2005, 12, 12, 5, 0, 0)
         .unwrap()
         .to_rfc3339();
-    let period: i64 = 20;
 
-    // Test all database functions
-    println!("\n=== Testing Database Functions ===");
+    // Read and execute strategy
+    let json_str = fs::read_to_string("input.json")?;
+    let strategy: models::Node = serde_json::from_str(&json_str)?;
 
-    let current_price =
-        database_functions::get_current_price(&pool, &ticker, &execution_date).await?;
-    println!("Current Price: ${:.2}", current_price.close);
-
-    let sma = database_functions::get_sma(&pool, &ticker, &execution_date, period).await?;
-    println!("SMA ({}): ${:.2}", period, sma);
-
-    let ema = database_functions::get_ema(&pool, &ticker, &execution_date, period).await?;
-    println!("EMA ({}): ${:.2}", period, ema);
-
-    let cumulative_return =
-        database_functions::get_cumulative_return(&pool, &ticker, &execution_date, period).await?;
-    println!("Cumulative Return ({}): {:.2}%", period, cumulative_return);
-
-    let ma_price =
-        database_functions::get_ma_of_price(&pool, &ticker, &execution_date, period).await?;
-    println!("MA of Price ({}): ${:.2}", period, ma_price);
-
-    let ma_returns =
-        database_functions::get_ma_of_returns(&pool, &ticker, &execution_date, period).await?;
-    println!("MA of Returns ({}): {:.2}%", period, ma_returns);
-
-    let rsi = database_functions::get_rsi(&pool, &ticker, &execution_date, 14).await?;
-    println!("RSI (14): {:.2}", rsi);
-
-    let drawdown =
-        database_functions::get_max_drawdown(&pool, &ticker, &execution_date, period).await?;
-    println!("Max Drawdown: {:.2}%", drawdown.max_drawdown_percentage);
-
-    let std_dev =
-        database_functions::get_returns_std_dev(&pool, &ticker, &execution_date, period).await?;
-    println!("Returns StdDev: {:.2}%", std_dev);
-
-    info!("Database connection test successful");
-    // Read strategy from JSON file
-    let _json_str = fs::read_to_string("input.json")?;
-    info!("Strategy file read successfully");
-
-    // Deserialize and validate strategy
-    //let strategy = json_operations::deserialize_json(&json_str)?;
-    info!("Strategy deserialized successfully");
-
-    // Execute strategy
-    //let execution_date = Utc::now();
-    //let allocations = strategy_executor::execute_strategy(&strategy, &pool, execution_date).await?;
-
+    let allocations =
+        strategy_executor::execute_strategy(&strategy, &pool, &execution_date).await?;
     // Print results
     println!("\nFinal Portfolio Allocations:");
     println!("----------------------------");
-    // for allocation in allocations {
-    //     println!(
-    //         "Ticker: {:5} | Weight: {:6.2}% | Date: {}",
-    //         allocation.ticker,
-    //         allocation.weight * 100.0,
-    //         allocation.date.format("%Y-%m-%d %H:%M:%S UTC")
-    //     );
-    // }
+    for allocation in allocations {
+        println!(
+            "Ticker: {:5} | Weight: {:6.2}% | Date: {}",
+            allocation.ticker,
+            allocation.weight * 100.0,
+            allocation.date.format("%Y-%m-%d %H:%M:%S UTC")
+        );
+    }
 
     Ok(())
 }
