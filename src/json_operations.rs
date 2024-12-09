@@ -13,7 +13,7 @@ pub enum ValidationError {
     #[error("Invalid operator: {0}")]
     InvalidOperator(String),
     #[error("Invalid weight: {0}")]
-    InvalidWeight(f32),
+    InvalidWeight(f64),
     #[error("Invalid Group: {0}")]
     InvalidGroup(String),
     #[error("Invalid ticker: {0}")]
@@ -62,7 +62,7 @@ fn validate_node_with_depth(node: &Node, depth: usize) -> Result<(), ValidationE
             children,
         } => {
             // Add root children weight validation
-            let total_weight: f32 = children
+            let total_weight: f64 = children
                 .iter()
                 .map(|child| match child {
                     Node::Condition { weight, .. }
@@ -104,7 +104,7 @@ fn validate_node_with_depth(node: &Node, depth: usize) -> Result<(), ValidationE
             }
 
             // Validate sum of weights equals 1.0
-            let weight_sum: f32 = children
+            let weight_sum: f64 = children
                 .iter()
                 .map(|child| match child {
                     Node::Asset { weight, .. } => *weight,
@@ -132,7 +132,7 @@ fn validate_node_with_depth(node: &Node, depth: usize) -> Result<(), ValidationE
     Ok(())
 }
 
-fn validate_weight(weight: f32) -> Result<(), ValidationError> {
+fn validate_weight(weight: f64) -> Result<(), ValidationError> {
     if !(0.0..=1.0).contains(&weight) {
         return Err(ValidationError::InvalidWeight(weight));
     }

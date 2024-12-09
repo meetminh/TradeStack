@@ -169,7 +169,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             "Ticker: {:5} | Weight: {:6.2}% | Date: {}",
             allocation.ticker,
             allocation.weight * 100.0,
-            allocation.date.format("%Y-%m-%d %H:%M:%S UTC")
+            allocation.date
         );
     }
 

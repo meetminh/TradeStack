@@ -2,6 +2,8 @@ use crate::database_functions::{self, DatabaseError};
 use crate::models::{Allocation, Condition, Node};
 use sqlx::Pool;
 use sqlx::Postgres;
+use std::future::Future;
+use std::pin::Pin;
 
 pub async fn execute_strategy(
     node: &Node,
@@ -9,38 +11,40 @@ pub async fn execute_strategy(
     execution_date: &String,
 ) -> Result<Vec<Allocation>, DatabaseError> {
     let allocations = execute_node(node, pool, execution_date, 1.0).await?;
-    normalize_weights(&allocations)
+    normalize_weights(&allocations, execution_date)
 }
 
-async fn execute_node(
-    node: &Node,
-    pool: &Pool<Postgres>,
-    execution_date: &String,
+fn execute_node<'a>(
+    node: &'a Node,
+    pool: &'a Pool<Postgres>,
+    execution_date: &'a String,
     parent_weight: f64,
-) -> Result<Vec<Allocation>, DatabaseError> {
-    match node {
-        Node::Root { weight, children } => {
-            execute_children(children, pool, execution_date, weight * parent_weight).await
+) -> Pin<Box<dyn Future<Output = Result<Vec<Allocation>, DatabaseError>> + Send + 'a>> {
+    Box::pin(async move {
+        match node {
+            Node::Root { weight, children } => {
+                execute_children(children, pool, execution_date, weight * parent_weight).await
+            }
+            Node::Condition {
+                weight,
+                condition,
+                if_true,
+                if_false,
+            } => {
+                let condition_met = evaluate_condition(condition, pool, execution_date).await?;
+                let selected_node = if condition_met { if_true } else { if_false };
+                execute_node(selected_node, pool, execution_date, weight * parent_weight).await
+            }
+            Node::Group { weight, children } | Node::Weighting { weight, children } => {
+                execute_children(children, pool, execution_date, weight * parent_weight).await
+            }
+            Node::Asset { ticker, weight } => Ok(vec![Allocation {
+                ticker: ticker.clone(),
+                weight: weight * parent_weight,
+                date: execution_date.clone(),
+            }]),
         }
-        Node::Condition {
-            weight,
-            condition,
-            if_true,
-            if_false,
-        } => {
-            let condition_met = evaluate_condition(condition, pool, execution_date).await?;
-            let selected_node = if condition_met { if_true } else { if_false };
-            execute_node(selected_node, pool, execution_date, weight * parent_weight).await
-        }
-        Node::Group { weight, children } | Node::Weighting { weight, children } => {
-            execute_children(children, pool, execution_date, weight * parent_weight).await
-        }
-        Node::Asset { ticker, weight } => Ok(vec![Allocation {
-            ticker: ticker.clone(),
-            weight: weight * parent_weight,
-            date: execution_date.clone(),
-        }]),
-    }
+    })
 }
 
 async fn execute_children(
@@ -98,7 +102,10 @@ async fn evaluate_condition(
     })
 }
 
-fn normalize_weights(allocations: &[Allocation]) -> Result<Vec<Allocation>, DatabaseError> {
+fn normalize_weights(
+    allocations: &[Allocation],
+    execution_date: &String,
+) -> Result<Vec<Allocation>, DatabaseError> {
     let total_weight: f64 = allocations.iter().map(|a| a.weight).sum();
     if total_weight == 0.0 {
         return Err(DatabaseError::InvalidCalculation(
@@ -111,7 +118,7 @@ fn normalize_weights(allocations: &[Allocation]) -> Result<Vec<Allocation>, Data
         .map(|a| Allocation {
             ticker: a.ticker.clone(),
             weight: a.weight / total_weight,
-            date: a.date.clone(),
+            date: execution_date.clone(),
         })
         .collect())
 }
