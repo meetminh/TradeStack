@@ -527,7 +527,7 @@ pub async fn get_ma_of_price(
 
 #[derive(Debug)]
 struct ReturnPriceResult {
-    moving_average: f64,
+    close: f64,
 }
 
 pub async fn get_ma_of_returns(
@@ -538,13 +538,18 @@ pub async fn get_ma_of_returns(
 ) -> Result<f64, DatabaseError> {
     validate_ticker(&ticker)?;
     validate_period(period, "Moving average period")?;
+    // Need an extra day for return calculation
+    let start_date = get_start_date(&pool, &ticker, &execution_date, period + 1).await?;
+    println!("Start get MA Query");
 
-    // Wir brauchen einen extra Tag für die Returnberechnung
-    let start_date = get_start_date(pool, &ticker, &execution_date, period + 1).await?;
+    let execution_timestamp = DateTime::parse_from_rfc3339(execution_date)
+        .map_err(|e| DatabaseError::InvalidInput(format!("Invalid date format: {}", e)))?
+        .timestamp_micros();
 
+    // Simple SQL query to get just the closing prices
     let prices = sqlx::query(
         r#"
-        SELECT time, close
+        SELECT close
         FROM stock_data
         WHERE ticker = $1
         AND time >= $2
@@ -554,20 +559,23 @@ pub async fn get_ma_of_returns(
     )
     .bind(&ticker)
     .bind(&start_date)
-    .bind(&execution_date)
+    .bind(execution_timestamp)
     .map(|row: sqlx::postgres::PgRow| ReturnPriceResult {
-        time: row.get("time"),
         close: row.get("close"),
     })
     .fetch_all(pool)
     .await?;
 
+    println!("Queires prices! succesffully");
+
+    // Basic validation
     if prices.len() < 2 {
         return Err(DatabaseError::InsufficientData(
             "Need at least 2 price points to calculate returns".to_string(),
         ));
     }
 
+    // Calculate daily returns with validation
     let daily_returns: Vec<f64> = prices
         .windows(2)
         .map(|window| {
@@ -593,6 +601,7 @@ pub async fn get_ma_of_returns(
         })
         .collect::<Result<Vec<f64>, DatabaseError>>()?;
 
+    // Validate we have enough return data
     if daily_returns.len() < period as usize {
         return Err(DatabaseError::InsufficientData(format!(
             "Need at least {} data points for {}-day MA",
@@ -600,6 +609,7 @@ pub async fn get_ma_of_returns(
         )));
     }
 
+    // Calculate moving average of returns
     let ma_return = daily_returns
         .windows(period as usize)
         .last()
@@ -608,6 +618,7 @@ pub async fn get_ma_of_returns(
             DatabaseError::InsufficientData("Failed to calculate moving average".to_string())
         })?;
 
+    // Final validation
     if !ma_return.is_finite() {
         return Err(DatabaseError::InvalidCalculation(
             "Calculation resulted in invalid value".to_string(),
