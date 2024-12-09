@@ -139,8 +139,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // Test SMA calculation
-    let execution_date = Utc.with_ymd_and_hms(2005, 12, 31, 0, 0, 0).unwrap();
-    let sma = database_functions::get_sma(&pool, "AAPL".to_string(), execution_date, 100).await?;
+    let execution_date = Utc
+        .with_ymd_and_hms(2005, 12, 31, 0, 0, 0)
+        .unwrap()
+        .to_rfc3339();
+    let sma = database_functions::get_sma(&pool, "AAPL".to_string(), &execution_date, 100).await?;
 
     println!("SMA for AAPL: {:.2}", sma);
 

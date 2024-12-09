@@ -1,5 +1,6 @@
 use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sqlx::postgres::PgPoolOptions;
 use sqlx::{Pool, Postgres, Row};
 use thiserror::Error; // Add this at the top with other imports
 
@@ -41,21 +42,69 @@ fn validate_price(price: f64, context: &str) -> Result<(), DatabaseError> {
     Ok(())
 }
 
+// #[derive(Debug)]
+// struct StartDateResult {
+//     time: NaiveDateTime, // We get TIMESTAMP from QuestDB
+// }
+
+// pub async fn get_start_date(
+//     pool: &Pool<Postgres>,
+//     ticker: String,
+//     execution_date: String,
+//     trading_days: i32,
+// ) -> Result<DateTime<Utc>, DatabaseError> {
+//     println!(
+//         "Starting get_start_date with date: {}",
+//         execution_date.to_rfc3339()
+//     );
+//     validate_ticker(&ticker)?;
+//     validate_period(trading_days, "Trading days")?;
+
+//     let start_date = sqlx::query(
+//         r#"
+//         SELECT min(time) as start_date
+//         FROM (
+//             SELECT time
+//             FROM stock_data
+//             WHERE ticker = $1
+//             AND time <= $2::text
+//             ORDER BY time DESC
+//             LIMIT $3
+//         ) AS subquery"#,
+//     )
+//     .bind(ticker)
+//     .bind(execution_date.to_rfc3339()) // Convert DateTime<Utc> to string for QuestDB
+//     .bind(trading_days as i64)
+//     .map(|row: sqlx::postgres::PgRow| StartDateResult {
+//         time: row.get("start_date"),
+//     })
+//     .fetch_one(pool)
+//     .await
+//     .map(|result| DateTime::<Utc>::from_naive_utc_and_offset(result.time, Utc)) // Convert back to DateTime<Utc>
+//     .map_err(|e| match e {
+//         sqlx::Error::RowNotFound => DatabaseError::InsufficientData(format!(
+//             "Not enough historical data available. Requested {} trading days but found fewer.",
+//             trading_days
+//         )),
+//         other => DatabaseError::SqlxError(other),
+//     })?;
+
+//     println!("Found start_date: {}", start_date);
+//     Ok(start_date)
+// }
+
 #[derive(Debug)]
 struct StartDateResult {
-    time: NaiveDateTime, // We get TIMESTAMP from QuestDB
+    time: NaiveDateTime,
 }
-
 pub async fn get_start_date(
     pool: &Pool<Postgres>,
     ticker: String,
-    execution_date: DateTime<Utc>,
+    execution_date: &String, // Accept String reference
     trading_days: i32,
-) -> Result<DateTime<Utc>, DatabaseError> {
-    println!(
-        "Starting get_start_date with date: {}",
-        execution_date.to_rfc3339()
-    );
+) -> Result<String, DatabaseError> {
+    // Still return String as planned
+    println!("Starting get_start_date with date: {}", execution_date);
     validate_ticker(&ticker)?;
     validate_period(trading_days, "Trading days")?;
 
@@ -66,20 +115,20 @@ pub async fn get_start_date(
             SELECT time 
             FROM stock_data 
             WHERE ticker = $1 
-            AND time <= $2::text
+            AND time <= $2
             ORDER BY time DESC 
             LIMIT $3
         ) AS subquery"#,
     )
-    .bind(ticker)
-    .bind(execution_date.to_rfc3339()) // Convert DateTime<Utc> to string for QuestDB
+    .bind(&ticker)
+    .bind(execution_date)
     .bind(trading_days as i64)
     .map(|row: sqlx::postgres::PgRow| StartDateResult {
         time: row.get("start_date"),
     })
     .fetch_one(pool)
     .await
-    .map(|result| DateTime::<Utc>::from_naive_utc_and_offset(result.time, Utc)) // Convert back to DateTime<Utc>
+    .map(|result| DateTime::<Utc>::from_naive_utc_and_offset(result.time, Utc).to_rfc3339()) // Convert to String
     .map_err(|e| match e {
         sqlx::Error::RowNotFound => DatabaseError::InsufficientData(format!(
             "Not enough historical data available. Requested {} trading days but found fewer.",
@@ -144,13 +193,13 @@ struct SMAResult {
 pub async fn get_sma(
     pool: &Pool<Postgres>,
     ticker: String,
-    execution_date: DateTime<Utc>,
+    execution_date: &String,
     period: i32,
 ) -> Result<f64, DatabaseError> {
     validate_ticker(&ticker)?;
     validate_period(period, "SMA period")?;
     println!("About to get start date...");
-    let start_date = get_start_date(pool, ticker.clone(), execution_date, period).await?;
+    let start_date = get_start_date(pool, ticker.clone(), &execution_date, period).await?;
     println!("Start date: {}", start_date);
     println!("Executing SMA query...");
 
@@ -164,8 +213,8 @@ pub async fn get_sma(
         ) AS sma
         FROM stock_data
         WHERE ticker = $1
-        AND time >= $2::text
-        AND time <= $3::text
+        AND time >= $2
+        AND time <= $3
         ORDER BY time DESC
         LIMIT 1
         "#,
@@ -174,8 +223,8 @@ pub async fn get_sma(
 
     let record = sqlx::query(&query)
         .bind(&ticker)
-        .bind(start_date.to_rfc3339())
-        .bind(execution_date.to_rfc3339())
+        .bind(&start_date)
+        .bind(&execution_date)
         .map(|row: sqlx::postgres::PgRow| SMAResult {
             sma: row.get("sma"),
         })
@@ -209,7 +258,7 @@ pub struct CurrentPrice {
 pub async fn get_current_price(
     pool: &Pool<Postgres>,
     ticker: String,
-    execution_date: DateTime<Utc>,
+    execution_date: String,
 ) -> Result<CurrentPrice, DatabaseError> {
     validate_ticker(&ticker)?;
 
@@ -245,7 +294,7 @@ struct CumulativeReturnResult {
 pub async fn get_cumulative_return(
     pool: &Pool<Postgres>,
     ticker: String,
-    execution_date: DateTime<Utc>,
+    execution_date: String,
     period: i32,
 ) -> Result<f64, DatabaseError> {
     // Validate inputs
@@ -253,7 +302,7 @@ pub async fn get_cumulative_return(
     validate_period(period, "Return period")?;
 
     // Calculate start date using the helper function
-    let start_date = get_start_date(pool, ticker.clone(), execution_date, period).await?;
+    let start_date = get_start_date(pool, ticker.clone(), &execution_date, period).await?;
 
     let record = sqlx::query(
         r#"
@@ -272,8 +321,8 @@ pub async fn get_cumulative_return(
         "#,
     )
     .bind(&ticker)
-    .bind(start_date)
-    .bind(execution_date)
+    .bind(start_date.clone())
+    .bind(&execution_date)
     .map(|row: sqlx::postgres::PgRow| CumulativeReturnResult {
         return_percentage: row.get("return_percentage"),
     })
@@ -283,7 +332,9 @@ pub async fn get_cumulative_return(
     .map_err(|e| match e {
         sqlx::Error::RowNotFound => DatabaseError::InsufficientData(format!(
             "No price data found for {} between {} and {}",
-            ticker, start_date, execution_date
+            ticker,
+            start_date,
+            execution_date // Can use start_date here now
         )),
         other => DatabaseError::SqlxError(other),
     })?;
@@ -306,13 +357,13 @@ struct EMAResult {
 pub async fn get_ema(
     pool: &Pool<Postgres>,
     ticker: String,
-    execution_date: DateTime<Utc>,
+    execution_date: String,
     period: i32,
 ) -> Result<f64, DatabaseError> {
     validate_ticker(&ticker)?;
     validate_period(period, "EMA period")?;
 
-    let start_date = get_start_date(pool, ticker.clone(), execution_date, period).await?;
+    let start_date = get_start_date(pool, ticker.clone(), &execution_date, period).await?;
 
     let prices = sqlx::query(
         r#"
@@ -327,8 +378,8 @@ pub async fn get_ema(
         ORDER BY time ASC
         "#,
     )
-    .bind(ticker)
-    .bind(start_date)
+    .bind(&ticker)
+    .bind(&start_date)
     .bind(execution_date)
     .map(|row: sqlx::postgres::PgRow| EMAResult {
         close: row.get("close"),
@@ -382,13 +433,13 @@ struct PriceResult {
 pub async fn get_max_drawdown(
     pool: &Pool<Postgres>,
     ticker: String,
-    execution_date: DateTime<Utc>,
+    execution_date: String,
     period: i32,
 ) -> Result<DrawdownResult, DatabaseError> {
     validate_ticker(&ticker)?;
     validate_period(period, "Drawdown period")?;
 
-    let start_date = get_start_date(pool, ticker.clone(), execution_date, period).await?;
+    let start_date = get_start_date(pool, ticker.clone(), &execution_date, period).await?;
 
     let prices = sqlx::query(
         r#"
@@ -464,13 +515,13 @@ struct MAResult {
 pub async fn get_ma_of_price(
     pool: &Pool<Postgres>,
     ticker: String,
-    execution_date: DateTime<Utc>,
+    execution_date: String,
     period: i32,
 ) -> Result<f64, DatabaseError> {
     validate_ticker(&ticker)?;
     validate_period(period, "Moving average period")?;
 
-    let start_date = get_start_date(pool, ticker.clone(), execution_date, period).await?;
+    let start_date = get_start_date(pool, ticker.clone(), &execution_date, period).await?;
 
     let record = sqlx::query(
         r#"
@@ -529,14 +580,14 @@ struct ReturnPriceResult {
 pub async fn get_ma_of_returns(
     pool: &Pool<Postgres>,
     ticker: String,
-    execution_date: DateTime<Utc>,
+    execution_date: String,
     period: i32,
 ) -> Result<f64, DatabaseError> {
     validate_ticker(&ticker)?;
     validate_period(period, "Moving average period")?;
 
     // Wir brauchen einen extra Tag für die Returnberechnung
-    let start_date = get_start_date(pool, ticker.clone(), execution_date, period + 1).await?;
+    let start_date = get_start_date(pool, ticker.clone(), &execution_date, period + 1).await?;
 
     let prices = sqlx::query(
         r#"
@@ -620,14 +671,14 @@ struct RSIResult {
 pub async fn get_rsi(
     pool: &Pool<Postgres>,
     ticker: String,
-    execution_date: DateTime<Utc>,
+    execution_date: String,
     period: i32,
 ) -> Result<f64, DatabaseError> {
     validate_ticker(&ticker)?;
     validate_period(period, "RSI period")?;
 
     // Wir brauchen period + 1 Tage für die Berechnung der Preisänderungen
-    let start_date = get_start_date(pool, ticker.clone(), execution_date, period + 1).await?;
+    let start_date = get_start_date(pool, ticker.clone(), &execution_date, period + 1).await?;
 
     let prices = sqlx::query(
         r#"
@@ -727,14 +778,14 @@ struct PriceStdDevResult {
 pub async fn get_price_std_dev(
     pool: &Pool<Postgres>,
     ticker: String,
-    execution_date: DateTime<Utc>,
+    execution_date: String,
     period: i32,
 ) -> Result<f64, DatabaseError> {
     // Validate inputs
     validate_ticker(&ticker)?;
     validate_period(period, "Moving average period")?;
 
-    let start_date = get_start_date(pool, ticker.clone(), execution_date, period).await?;
+    let start_date = get_start_date(pool, ticker.clone(), &execution_date, period).await?;
 
     // Fetch prices
     let prices = sqlx::query(
@@ -812,7 +863,7 @@ struct StdDevPriceResult {
 pub async fn get_returns_std_dev(
     pool: &Pool<Postgres>,
     ticker: String,
-    execution_date: DateTime<Utc>,
+    execution_date: String,
     period: i32,
 ) -> Result<f64, DatabaseError> {
     // Validate inputs
@@ -820,7 +871,7 @@ pub async fn get_returns_std_dev(
     validate_period(period, "Return std dev period")?;
 
     // Calculate start date using the helper function
-    let start_date = get_start_date(pool, ticker.clone(), execution_date, period).await?;
+    let start_date = get_start_date(pool, ticker.clone(), &execution_date, period).await?;
 
     // Fetch prices
     let prices = sqlx::query(
