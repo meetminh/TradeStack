@@ -105,71 +105,49 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .await?;
     info!("Database connection test successful");
 
-    let start_date = Utc.with_ymd_and_hms(2005, 1, 1, 0, 0, 0).unwrap();
-    let end_date = Utc.with_ymd_and_hms(2005, 12, 31, 0, 0, 0).unwrap();
-
-    println!("\nQuerying data between dates:");
-    println!("Start date: {}", start_date.to_rfc3339());
-    println!("End date: {}", end_date.to_rfc3339());
-
-    let date_test_records = sqlx::query(
-        "SELECT time, open, volume 
-         FROM stock_data 
-         WHERE ticker = 'AAPL' 
-         AND time BETWEEN $1::text AND $2::text
-         ORDER BY time ASC",
-    )
-    .bind(start_date.to_rfc3339())
-    .bind(end_date.to_rfc3339())
-    .map(|row: sqlx::postgres::PgRow| StockData {
-        time: row.get("time"),
-        open: row.get("open"),
-        volume: row.get("volume"),
-    })
-    .fetch_all(&pool)
-    .await?;
-
-    println!("\nFound {} records", date_test_records.len());
-    println!("\nFirst 5 records:");
-    for record in date_test_records.iter().take(5) {
-        println!(
-            "Date: {}, Open: ${:.2}, Volume: {}",
-            record.time, record.open, record.volume
-        );
-    }
-
-    // Test SMA calculation
+    let ticker = "AAPL".to_string();
     let execution_date = Utc
-        .with_ymd_and_hms(2005, 12, 31, 0, 0, 0)
+        .with_ymd_and_hms(2005, 12, 12, 5, 0, 0)
         .unwrap()
         .to_rfc3339();
-    let sma = database_functions::get_sma(&pool, "AAPL".to_string(), &execution_date, 100).await?;
+    let period: i64 = 20;
 
-    println!("SMA for AAPL: {:.2}", sma);
+    // Test all database functions
+    println!("\n=== Testing Database Functions ===");
 
-    // Query AAPL data for 2000-2001
-    let records = sqlx::query(
-        "SELECT time, open, volume 
-         FROM stock_data 
-         WHERE ticker = 'AAPL' 
-         AND time BETWEEN '2000-01-01' AND '2001-12-31'
-         ORDER BY time ASC",
-    )
-    .map(|row: sqlx::postgres::PgRow| StockData {
-        time: row.get("time"),
-        open: row.get("open"),
-        volume: row.get("volume"),
-    })
-    .fetch_all(&pool)
-    .await?;
+    let current_price =
+        database_functions::get_current_price(&pool, &ticker, &execution_date).await?;
+    println!("Current Price: ${:.2}", current_price.close);
 
-    // Print results
-    for record in records {
-        println!(
-            "Date: {}, Open: ${:.2}, Volume: {}",
-            record.time, record.open, record.volume
-        );
-    }
+    let sma = database_functions::get_sma(&pool, &ticker, &execution_date, period).await?;
+    println!("SMA ({}): ${:.2}", period, sma);
+
+    let ema = database_functions::get_ema(&pool, &ticker, &execution_date, period).await?;
+    println!("EMA ({}): ${:.2}", period, ema);
+
+    let cumulative_return =
+        database_functions::get_cumulative_return(&pool, &ticker, &execution_date, period).await?;
+    println!("Cumulative Return ({}): {:.2}%", period, cumulative_return);
+
+    let ma_price =
+        database_functions::get_ma_of_price(&pool, &ticker, &execution_date, period).await?;
+    println!("MA of Price ({}): ${:.2}", period, ma_price);
+
+    let ma_returns =
+        database_functions::get_ma_of_returns(&pool, &ticker, &execution_date, period).await?;
+    println!("MA of Returns ({}): {:.2}%", period, ma_returns);
+
+    let rsi = database_functions::get_rsi(&pool, &ticker, &execution_date, 14).await?;
+    println!("RSI (14): {:.2}", rsi);
+
+    let drawdown =
+        database_functions::get_max_drawdown(&pool, &ticker, &execution_date, period).await?;
+    println!("Max Drawdown: {:.2}%", drawdown.max_drawdown_percentage);
+
+    let std_dev =
+        database_functions::get_returns_std_dev(&pool, &ticker, &execution_date, period).await?;
+    println!("Returns StdDev: {:.2}%", std_dev);
+
     info!("Database connection test successful");
     // Read strategy from JSON file
     let _json_str = fs::read_to_string("input.json")?;
