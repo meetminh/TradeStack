@@ -50,6 +50,8 @@ use sqlx::{postgres::PgPoolOptions, Row}; // Add Row trait here // Add this impo
 use chrono::{TimeZone, Utc};
 use std::error::Error;
 use std::fs;
+use std::time::Instant;
+use sysinfo::{ProcessExt, System, SystemExt};
 use tracing::info; // Add this import
 
 // pub async fn create_pool() -> Result<sqlx::Pool<sqlx::Postgres>, sqlx::Error> {
@@ -92,9 +94,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Initialize logging
     tracing_subscriber::fmt::init();
 
+    // Measure start time
+    let start_time = Instant::now();
+
     // Create database pool
     let pool = create_pool().await?;
     info!("Connected to QuestDB successfully!");
+
+    // Measure memory usage before execution
+    let mut sys = System::new_all();
+    sys.refresh_all();
+    let process_id = sysinfo::get_current_pid().unwrap();
+    let memory_before = sys.process(process_id).unwrap().memory();
 
     // Test the connection
     // Test the connection
@@ -161,6 +172,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let allocations =
         strategy_executor::execute_strategy(&strategy, &pool, &execution_date).await?;
+
+    // Measure memory usage after execution
+    sys.refresh_all();
+    let memory_after = sys.process(process_id).unwrap().memory();
     // Print results
     println!("\nFinal Portfolio Allocations:");
     println!("----------------------------");
@@ -172,6 +187,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
             allocation.date
         );
     }
+
+    // Measure end time
+    let duration = start_time.elapsed();
+    println!("\nExecution Time: {:?}", duration);
+    println!("Memory Usage: {} KB", memory_after - memory_before);
 
     Ok(())
 }
