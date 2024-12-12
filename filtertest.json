@@ -1,0 +1,45 @@
+{
+  "type": "root",
+  "weight": 1.0,
+  "children": [
+    {
+      "type": "condition",
+      "weight": 1.0,
+      "condition": {
+        "function": "cumulative_return",
+        "params": ["QQQ", "50"],
+        "operator": "<",
+        "value": {
+          "function": "current_price",
+          "params": ["QQQ"]
+        }
+      },
+      "if_true": {
+        "type": "filter",
+        "weight": 1.0,
+        "children": [
+          {
+            "type": "weighting",
+            "weight": 1.0,
+            "universe": ["AAPL", "NVDA", "AMZN", "GOOGL", "TSLA"],
+            "sort": {
+              "function": "cumulative_return",
+              "params": ["10"],
+              "order": "DESC"
+            },
+            "select": {
+              "direction": "TOP",
+              "count": 3,
+              "weights": [0.5, 0.3, 0.2]
+            }
+          }
+        ]
+      },
+      "if_false": {
+        "type": "asset",
+        "ticker": "SHY",
+        "weight": 1.0
+      }
+    }
+  ]
+}

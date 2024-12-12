@@ -919,6 +919,159 @@ pub async fn get_returns_std_dev(
     Ok(std_dev)
 }
 
+pub async fn get_sorted_universe(
+    pool: &Pool<Postgres>,
+    universe: &[String],
+    execution_date: &String,
+    sort_config: &SortConfig,
+) -> Result<Vec<String>, DatabaseError> {
+    // Validate inputs
+    for ticker in universe {
+        validate_ticker(ticker)?;
+    }
+
+    let mut ticker_values: Vec<(String, f64)> = Vec::new();
+
+    // Get values for each ticker based on sort function
+    for ticker in universe {
+        let value = match sort_config.function.as_str() {
+            "cumulative_return" => {
+                get_cumulative_return(
+                    pool,
+                    ticker,
+                    execution_date,
+                    sort_config.params[0].parse().unwrap(),
+                )
+                .await?
+            }
+            "current_price" => get_current_price(pool, ticker, execution_date).await?.close,
+            "rsi" => {
+                get_rsi(
+                    pool,
+                    ticker,
+                    execution_date,
+                    sort_config.params[0].parse().unwrap(),
+                )
+                .await?
+            }
+            "sma" => {
+                get_sma(
+                    pool,
+                    ticker,
+                    execution_date,
+                    sort_config.params[0].parse().unwrap(),
+                )
+                .await?
+            }
+            "ema" => {
+                get_ema(
+                    pool,
+                    ticker,
+                    execution_date,
+                    sort_config.params[0].parse().unwrap(),
+                )
+                .await?
+            }
+            "ma_of_price" => {
+                get_ma_of_price(
+                    pool,
+                    ticker,
+                    execution_date,
+                    sort_config.params[0].parse().unwrap(),
+                )
+                .await?
+            }
+            "ma_of_returns" => {
+                get_ma_of_returns(
+                    pool,
+                    ticker,
+                    execution_date,
+                    sort_config.params[0].parse().unwrap(),
+                )
+                .await?
+            }
+            "max_drawdown" => {
+                get_max_drawdown(
+                    pool,
+                    ticker,
+                    execution_date,
+                    sort_config.params[0].parse().unwrap(),
+                )
+                .await?
+            }
+            "price_std_dev" => {
+                get_price_std_dev(
+                    pool,
+                    ticker,
+                    execution_date,
+                    sort_config.params[0].parse().unwrap(),
+                )
+                .await?
+            }
+            "returns_std_dev" => {
+                get_returns_std_dev(
+                    pool,
+                    ticker,
+                    execution_date,
+                    sort_config.params[0].parse().unwrap(),
+                )
+                .await?
+            }
+            _ => {
+                return Err(DatabaseError::InvalidInput(format!(
+                    "Unsupported sort function: {}",
+                    sort_config.function
+                )))
+            }
+        };
+        ticker_values.push((ticker.clone(), value));
+    }
+
+    // Sort based on order
+    ticker_values.sort_by(|a, b| {
+        if sort_config.order == "DESC" {
+            b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+        } else {
+            a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
+        }
+    });
+
+    Ok(ticker_values
+        .into_iter()
+        .map(|(ticker, _)| ticker)
+        .collect())
+}
+
+pub async fn apply_weighting(
+    sorted_tickers: Vec<String>,
+    select_config: &SelectConfig,
+) -> Result<Vec<(String, f64)>, DatabaseError> {
+    if select_config.count as usize > sorted_tickers.len() {
+        return Err(DatabaseError::InvalidInput(format!(
+            "Requested {} tickers but only {} available",
+            select_config.count,
+            sorted_tickers.len()
+        )));
+    }
+
+    let selected_tickers = match select_config.direction.as_str() {
+        "TOP" => &sorted_tickers[..select_config.count as usize],
+        "BOTTOM" => &sorted_tickers[sorted_tickers.len() - select_config.count as usize..],
+        _ => {
+            return Err(DatabaseError::InvalidInput(format!(
+                "Invalid direction: {}",
+                select_config.direction
+            )))
+        }
+    };
+
+    Ok(selected_tickers
+        .iter()
+        .zip(select_config.weights.iter())
+        .map(|(ticker, weight)| (ticker.clone(), *weight))
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -29,8 +29,10 @@ def get_all_db_data() -> Dict[str, Dict[str, datetime]]:
 
         # Get all distinct dates for each ticker
         cursor.execute("""
-            SELECT ticker, time::date 
+            SELECT ticker, 
+                   time::date as trading_date
             FROM stock_data 
+            WHERE time IS NOT NULL
             ORDER BY ticker, time
         """)
 
@@ -63,32 +65,49 @@ def fetch_ticker_data(ticker: str, start_date: datetime, end_date: datetime) -> 
         return ticker, pd.DataFrame()
 
 
-def ingest_batch_data(batch_data: Dict[str, pd.DataFrame], host: str = 'host.docker.internal', port: int = 8812) -> None:
+def validate_ticker_data(df: pd.DataFrame, ticker: str) -> bool:
+    """Validate data before ingestion"""
+    if df.empty:
+        return False
+    
+    required_columns = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
+    if not all(col in df.columns for col in required_columns):
+        print(f"Missing required columns for {ticker}")
+        return False
+        
+    # Check for invalid values
+    if df.isnull().any().any():
+        print(f"Found null values in {ticker} data")
+        return False
+        
+    return True
+
+
+def ingest_batch_data(batch_data: Dict[str, pd.DataFrame]) -> None:
     """Ingest a batch of ticker data into QuestDB"""
     try:
-        conn = psycopg2.connect(
-            host=host,
-            port=port,
-            dbname='qdb',
-            user='admin',
-            password='quest'
-        )
+        conn = get_db_connection()
         cursor = conn.cursor()
 
         for ticker, df in batch_data.items():
-            symbol = ticker.replace(
-                '^', '') if ticker.startswith('^') else ticker
-
+            if df.empty:
+                continue
+                
+            symbol = ticker.replace('^', '') if ticker.startswith('^') else ticker
+            
+            # Prepare batch insert
+            values = []
             for _, row in df.iterrows():
                 try:
-                    timestamp = row['Date'].astimezone(
-                        timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
-
-                    cursor.execute("""
-                        INSERT INTO stock_data (time, ticker, open, high, low, close, volume)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    """, (
-                        timestamp,
+                    # Ensure timestamp is in UTC
+                    timestamp = pd.to_datetime(row['Date'])
+                    if timestamp.tz is None:
+                        timestamp = timestamp.tz_localize('UTC')
+                    else:
+                        timestamp = timestamp.tz_convert('UTC')
+                        
+                    values.append((
+                        timestamp.strftime('%Y-%m-%d %H:%M:%S'),
                         symbol,
                         float(row['Open']),
                         float(row['High']),
@@ -97,35 +116,45 @@ def ingest_batch_data(batch_data: Dict[str, pd.DataFrame], host: str = 'host.doc
                         int(row['Volume'])
                     ))
                 except Exception as e:
-                    print(f"Error ingesting row for {ticker}: {e}")
+                    print(f"Error processing row for {ticker}: {e}")
                     continue
-
+            
+            # Batch insert
+            if values:
+                cursor.executemany("""
+                    INSERT INTO stock_data (time, ticker, open, high, low, close, volume)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """, values)
+                
         conn.commit()
+    except Exception as e:
+        print(f"Error in batch ingestion: {e}")
+    finally:
         cursor.close()
         conn.close()
-    except Exception as e:
-        print(f"Error connecting to QuestDB for ingestion: {e}")
 
 
 def analyze_and_fill_gaps():
     """Main function to analyze data quality and fill gaps"""
     print("Fetching all data from database...")
     db_data = get_all_db_data()
-    print(f"Found {len(db_data)} tickers")
-
-    # Get reference trading days using SPY
-    print("Getting trading calendar from SPY...")
-    spy = yf.Ticker("SPY")
-    full_history = spy.history(
-        start="2000-01-01", end=datetime.now(), interval='1d')
-    trading_days = set(d.date() for d in full_history.index)
-
+    
     for ticker, data in tqdm(db_data.items(), desc="Analyzing tickers"):
-        print(f"\nProcessing {ticker}")
-
-        # Find missing dates
-        ticker_dates = data['dates']
-        missing_dates = sorted(list(trading_days - ticker_dates))
+        if not data['dates']:
+            continue
+            
+        # Get ticker's actual trading range
+        ticker_dates = sorted(list(data['dates']))
+        first_date = ticker_dates[0]
+        last_date = ticker_dates[-1]
+        
+        # Get SPY data only for this range
+        spy = yf.Ticker("SPY")
+        reference_history = spy.history(start=first_date, end=last_date, interval='1d')
+        trading_days = set(d.date() for d in reference_history.index)
+        
+        # Now compare only within the stock's actual trading period
+        missing_dates = sorted(list(trading_days - set(ticker_dates)))
 
         if missing_dates:
             print(f"Found {len(missing_dates)} missing dates for {ticker}")
