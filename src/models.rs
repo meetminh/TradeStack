@@ -26,27 +26,6 @@ pub enum Node {
     Weighting { weight: f64, children: Vec<Node> },
     #[serde(rename = "asset")]
     Asset { ticker: String, weight: f64 },
-    #[serde(rename = "filter")]
-    Filter {
-        weight: f64,
-        tickers: Vec<String>,
-        sort: FilterSort,
-        select: FilterSelect,
-        children: Vec<Node>,
-    },
-}
-
-#[derive(Debug, Deserialize)]
-pub struct FilterSort {
-    pub function: String,
-    pub params: Vec<String>,
-    pub order: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct FilterSelect {
-    pub direction: String, // "TOP" or "BOTTOM"
-    pub count: usize,      // Number of tickers to select
 }
 
 #[derive(Debug, Serialize)]

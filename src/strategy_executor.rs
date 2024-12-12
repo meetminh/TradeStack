@@ -35,7 +35,10 @@ fn execute_node<'a>(
                 let selected_node = if condition_met { if_true } else { if_false };
                 execute_node(selected_node, pool, execution_date, weight * parent_weight).await
             }
-            Node::Group { weight, children } | Node::Weighting { weight, children } => {
+            Node::Group { weight, children } => {
+                execute_children(children, pool, execution_date, weight * parent_weight).await
+            }
+            Node::Weighting { weight, children } => {
                 execute_children(children, pool, execution_date, weight * parent_weight).await
             }
             Node::Asset { ticker, weight } => Ok(vec![Allocation {

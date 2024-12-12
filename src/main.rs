@@ -73,11 +73,16 @@ pub async fn create_pool() -> Result<sqlx::Pool<sqlx::Postgres>, sqlx::Error> {
     let database_url =
         std::env::var("DATABASE_URL").expect("DATABASE_URL must be set in .env file");
 
+    // QuestDB specific settings:
+    // - Higher timeout because QuestDB might take longer to respond
+    // - Fewer max connections as QuestDB has connection limits
+    // - No persistent connections (QuestDB may drop them)
     PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(std::time::Duration::from_secs(3))
-        .idle_timeout(std::time::Duration::from_secs(30))
-        .max_lifetime(std::time::Duration::from_secs(30 * 60)) // 30 minutes
+        .max_connections(5) // Lower max connections
+        .min_connections(0) // Don't maintain persistent connections
+        .acquire_timeout(std::time::Duration::from_secs(30)) // Longer timeout
+        .idle_timeout(Some(std::time::Duration::from_secs(30))) // Shorter idle timeout
+        .max_lifetime(Some(std::time::Duration::from_secs(3600))) // 1 hour max lifetime
         .connect(&database_url)
         .await
 }
@@ -99,6 +104,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Create database pool
     let pool = create_pool().await?;
+    // Test the connection with a QuestDB-specific query
+    let version = sqlx::query_scalar::<_, String>("SELECT version()")
+        .fetch_one(&pool)
+        .await?;
+    info!("Connected to QuestDB version: {}", version);
     info!("Connected to QuestDB successfully!");
 
     // Measure memory usage before execution

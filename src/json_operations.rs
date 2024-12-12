@@ -81,6 +81,7 @@ fn validate_node_with_depth(node: &Node, depth: usize) -> Result<(), ValidationE
                 .iter()
                 .try_for_each(|child| validate_node_with_depth(child, depth + 1))?;
         }
+
         Node::Condition {
             weight,
             condition,
@@ -113,7 +114,6 @@ fn validate_node_with_depth(node: &Node, depth: usize) -> Result<(), ValidationE
                 .sum();
 
             if (weight_sum - 1.0).abs() > 0.0001 {
-                // Allow small floating-point differences
                 return Err(ValidationError::InvalidGroup(format!(
                     "Group weights must sum to 1.0, got {}",
                     weight_sum
@@ -465,5 +465,24 @@ mod tests {
 
         let result = deserialize_json(json);
         assert!(result.is_ok(), "Should accept valid strategy");
+    }
+
+    #[test]
+    fn test_valid_weighting_node() {
+        let json = r#"{
+            "type": "root",
+            "weight": 1.0,
+            "children": [{
+                "type": "weighting",
+                "weight": 1.0,
+                "children": [
+                    { "type": "asset", "ticker": "SPY", "weight": 0.6 },
+                    { "type": "asset", "ticker": "QQQ", "weight": 0.4 }
+                ]
+            }]
+        }"#;
+
+        let result = deserialize_json(json);
+        assert!(result.is_ok(), "Should accept valid weighting node");
     }
 }
