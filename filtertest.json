@@ -1,45 +1,138 @@
 {
-  "type": "root",
-  "weight": 1.0,
+  "blocktype": "Group",
+  "attributes": {
+    "name": "QQQ Momentum Strategy"
+  },
   "children": [
     {
-      "type": "condition",
-      "weight": 1.0,
-      "condition": {
-        "function": "cumulative_return",
-        "params": ["QQQ", "50"],
-        "operator": "<",
-        "value": {
-          "function": "current_price",
-          "params": ["QQQ"]
-        }
+      "blocktype": "Weight",
+      "attributes": {
+        "type": "equal"
       },
-      "if_true": {
-        "type": "filter",
-        "weight": 1.0,
-        "children": [
-          {
-            "type": "weighting",
-            "weight": 1.0,
-            "universe": ["AAPL", "NVDA", "AMZN", "GOOGL", "TSLA"],
-            "sort": {
-              "function": "cumulative_return",
-              "params": ["10"],
-              "order": "DESC"
-            },
-            "select": {
-              "direction": "TOP",
-              "count": 3,
-              "weights": [0.5, 0.3, 0.2]
+      "children": [
+        {
+          "blocktype": "Condition",
+          "attributes": {
+            "condition": {
+              "function": {
+                "function_name": "cumulative_return",
+                "window_of_days": 50,
+                "asset": "QQQ"
+              },
+              "operator": "<",
+              "compare_to": {
+                "type": "function",
+                "function": {
+                  "function_name": "current_price",
+                  "window_of_days": null,
+                  "asset": "QQQ"
+                }
+              }
             }
-          }
-        ]
-      },
-      "if_false": {
-        "type": "asset",
-        "ticker": "SHY",
-        "weight": 1.0
-      }
+          },
+          "children": [
+            {
+              "blocktype": "Group",
+              "attributes": {
+                "name": "Top Performers Portfolio"
+              },
+              "children": [
+                {
+                  "blocktype": "Weight",
+                  "attributes": {
+                    "type": "specified",
+                    "allocation_type": "percentage",
+                    "values": [50, 30, 20]
+                  },
+                  "children": [
+                    {
+                      "blocktype": "Filter",
+                      "attributes": {
+                        "sort_function": {
+                          "function_name": "cumulative_return",
+                          "window_of_days": 10
+                        },
+                        "select": {
+                          "option": "Top",
+                          "amount": 3
+                        }
+                      },
+                      "children": [
+                        {
+                          "blocktype": "Asset",
+                          "attributes": {
+                            "ticker": "AAPL",
+                            "company_name": "Apple Inc.",
+                            "exchange": "NASDAQ"
+                          }
+                        },
+                        {
+                          "blocktype": "Asset",
+                          "attributes": {
+                            "ticker": "NVDA",
+                            "company_name": "NVIDIA Corporation",
+                            "exchange": "NASDAQ"
+                          }
+                        },
+                        {
+                          "blocktype": "Asset",
+                          "attributes": {
+                            "ticker": "AMZN",
+                            "company_name": "Amazon.com Inc.",
+                            "exchange": "NASDAQ"
+                          }
+                        },
+                        {
+                          "blocktype": "Asset",
+                          "attributes": {
+                            "ticker": "GOOGL",
+                            "company_name": "Alphabet Inc.",
+                            "exchange": "NASDAQ"
+                          }
+                        },
+                        {
+                          "blocktype": "Asset",
+                          "attributes": {
+                            "ticker": "TSLA",
+                            "company_name": "Tesla Inc.",
+                            "exchange": "NASDAQ"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "blocktype": "Group",
+              "attributes": {
+                "name": "Safe Haven"
+              },
+              "children": [
+                {
+                  "blocktype": "Weight",
+                  "attributes": {
+                    "type": "specified",
+                    "allocation_type": "percentage",
+                    "values": [100]
+                  },
+                  "children": [
+                    {
+                      "blocktype": "Asset",
+                      "attributes": {
+                        "ticker": "SHY",
+                        "company_name": "iShares 1-3 Year Treasury Bond ETF",
+                        "exchange": "NYSE"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
     }
   ]
 }

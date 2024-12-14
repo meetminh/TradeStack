@@ -1,0 +1,44 @@
+{
+  "type": "root",
+  "weight": 1.0,
+  "children": [
+    {
+      "type": "condition",
+      "weight": 0.5,
+      "condition": {
+        "function": "cumulative_return",
+        "params": ["VIX", "30"],
+        "operator": ">",
+        "value": 20
+      },
+      "if_true": {
+        "type": "group",
+        "weight": 1.0,
+        "children": [
+          { "type": "asset", "ticker": "TLT", "weight": 0.7 },
+          { "type": "asset", "ticker": "GLD", "weight": 0.3 }
+        ]
+      },
+      "if_false": {
+        "type": "condition",
+        "weight": 1.0,
+        "condition": {
+          "function": "rsi",
+          "params": ["SPY", "14"],
+          "operator": "<",
+          "value": 30
+        },
+        "if_true": {
+          "type": "weighting",
+          "weight": 1.0,
+          "children": [
+            { "type": "asset", "ticker": "SPY", "weight": 0.8 },
+            { "type": "asset", "ticker": "QQQ", "weight": 0.2 }
+          ]
+        },
+        "if_false": { "type": "asset", "ticker": "VOOG", "weight": 1.0 }
+      }
+    },
+    { "type": "asset", "ticker": "SHY", "weight": 0.5 }
+  ]
+}

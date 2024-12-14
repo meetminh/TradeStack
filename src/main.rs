@@ -37,14 +37,17 @@
 //     Ok(())
 // }
 
-mod database_functions;
+mod block {
+    pub mod database_functions;
+    pub mod filter;
+}
 mod json_operations;
 mod models;
 mod strategy_executor;
 
 //use chrono::Utc;
 use chrono::NaiveDateTime;
-use sqlx::{postgres::PgPoolOptions, Row}; // Add Row trait here // Add this import
+use sqlx::postgres::PgPoolOptions; // Add Row trait here // Add this import
 
 // ... rest of the code remains the same
 use chrono::{TimeZone, Utc};
@@ -102,29 +105,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Measure start time
     let start_time = Instant::now();
 
-    // Create database pool
+    // Create and test database pool
     let pool = create_pool().await?;
-    // Test the connection with a QuestDB-specific query
     let version = sqlx::query_scalar::<_, String>("SELECT version()")
         .fetch_one(&pool)
         .await?;
     info!("Connected to QuestDB version: {}", version);
-    info!("Connected to QuestDB successfully!");
 
     // Measure memory usage before execution
     let mut sys = System::new_all();
     sys.refresh_all();
     let process_id = sysinfo::get_current_pid().unwrap();
     let memory_before = sys.process(process_id).unwrap().memory();
-
-    // Test the connection
-    // Test the connection
-    // Query AAPL data for 2000-2001
-    // Test the connection
-    sqlx::query_scalar::<_, i32>("SELECT 1")
-        .fetch_one(&pool)
-        .await?;
-    info!("Database connection test successful");
 
     // let ticker = "AAPL".to_string();
     // let execution_date = Utc
@@ -178,10 +170,24 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Read and execute strategy
     let json_str = fs::read_to_string("input.json")?;
-    let strategy: models::Node = serde_json::from_str(&json_str)?;
+    let strategy = match json_operations::deserialize_json(&json_str) {
+        Ok(strategy) => strategy,
+        Err(e) => {
+            eprintln!("Error parsing strategy: {}", e);
+            return Err(e.into());
+        }
+    };
+
+    info!("Strategy validation successful");
 
     let allocations =
-        strategy_executor::execute_strategy(&strategy, &pool, &execution_date).await?;
+        match strategy_executor::execute_strategy(&strategy, &pool, &execution_date).await {
+            Ok(allocs) => allocs,
+            Err(e) => {
+                eprintln!("Error executing strategy: {}", e);
+                return Err(e.into());
+            }
+        };
 
     // Measure memory usage after execution
     sys.refresh_all();
