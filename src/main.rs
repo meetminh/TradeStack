@@ -41,9 +41,9 @@ mod block {
     pub mod database_functions;
     pub mod filter;
 }
-mod json_operations;
 mod models;
 mod strategy_executor;
+mod validate_json;
 
 //use chrono::Utc;
 use chrono::NaiveDateTime;
@@ -169,8 +169,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .to_rfc3339();
 
     // Read and execute strategy
-    let json_str = fs::read_to_string("input.json")?;
-    let strategy = match json_operations::deserialize_json(&json_str) {
+    let json_str = fs::read_to_string("test_all.json")?;
+    let strategy = match validate_json::deserialize_json(&json_str) {
         Ok(strategy) => strategy,
         Err(e) => {
             eprintln!("Error parsing strategy: {}", e);
@@ -180,29 +180,29 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     info!("Strategy validation successful");
 
-    let allocations =
-        match strategy_executor::execute_strategy(&strategy, &pool, &execution_date).await {
-            Ok(allocs) => allocs,
-            Err(e) => {
-                eprintln!("Error executing strategy: {}", e);
-                return Err(e.into());
-            }
-        };
+    // let allocations =
+    //     match strategy_executor::execute_strategy(&strategy, &pool, &execution_date).await {
+    //         Ok(allocs) => allocs,
+    //         Err(e) => {
+    //             eprintln!("Error executing strategy: {}", e);
+    //             return Err(e.into());
+    //         }
+    //     };
 
     // Measure memory usage after execution
     sys.refresh_all();
     let memory_after = sys.process(process_id).unwrap().memory();
     // Print results
-    println!("\nFinal Portfolio Allocations:");
-    println!("----------------------------");
-    for allocation in allocations {
-        println!(
-            "Ticker: {:5} | Weight: {:6.2}% | Date: {}",
-            allocation.ticker,
-            allocation.weight * 100.0,
-            allocation.date
-        );
-    }
+    // println!("\nFinal Portfolio Allocations:");
+    // println!("----------------------------");
+    // for allocation in allocations {
+    //     println!(
+    //         "Ticker: {:5} | Weight: {:6.2}% | Date: {}",
+    //         allocation.ticker,
+    //         allocation.weight * 100.0,
+    //         allocation.date
+    //     );
+    // }
 
     // Measure end time
     let duration = start_time.elapsed();

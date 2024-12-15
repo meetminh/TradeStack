@@ -1,263 +1,256 @@
-# Investment Portfolio Simulation Block System
+# Investment Portfolio Block System Documentation
 
-## Overview
-The Block System is a modular architecture designed for building investment portfolio simulations. It allows users to construct complex investment strategies using interconnected blocks, similar to a building block system. Each block represents a specific function or decision in the investment strategy.
+## Core Structure
+Every block must have:
+- `blocktype` as first key (mandatory)
+- Additional attributes (block-specific)
+- `children` array where allowed
 
-## Block Types
+## Block Types & Rules
 
-### 1. Asset Block
-Represents an individual tradable asset (stock).
+### 1. Group Block
+```json
+{
+  "blocktype": "Group",
+  "name": "Strategy Name",
+  "children": [
+    // First child is always Weight Block
+    {
+      "blocktype": "Weight",
+      "type": "equal",
+      "children": []
+    },
+    // Additional blocks...
+  ]
+}
+```
+
+**Rules:**
+- First child is ALWAYS a Weight Block (automatically added)
+- Default Weight Block has `type: "equal"`
+- Can contain any other blocks after Weight Block
+
+### 2. Weight Block
+```json
+{
+  "blocktype": "Weight",
+  "type": "specified",
+  "allocation_type": "percentage",  // Optional, only for type "specified"
+  "values": [40, 30, 30],          // Optional, only for type "specified"
+  "window_of_trading_days": 20,     // Optional, only for type "inverse_volatility"
+  "children": []
+}
+```
+
+**Type Options & Requirements:**
+1. `"type": "equal"`
+   - No additional attributes needed
+   
+2. `"type": "specified"`
+   - Requires:
+     - `allocation_type`: "percentage" or "fraction"
+     - `values`: Array of allocations
+   - Number of values must match number of children
+   
+3. `"type": "inverse_volatility"`
+   - Requires: `window_of_trading_days`
+   
+4. `"type": "market_cap"`
+   - No additional attributes needed
+
+### 3. Asset Block
 ```json
 {
   "blocktype": "Asset",
-  "attributes": {
-    "ticker": "TSLA",
-    "company_name": "Tesla Inc.",
-    "exchange": "Nasdaq"
-  }
+  "ticker": "TSLA",
+  "company_name": "Tesla Inc.",
+  "exchange": "NASDAQ"
 }
 ```
+
+**Rules:**
 - No children allowed
-- Basic validation of ticker symbols
-- Future extension: Additional metadata (currency, asset class, trading status)
-
-### 2. Group Block
-Organizes other blocks into logical units. Always contains a Weight Block as its first child.
-```json
-{
-  "blocktype": "Group",
-  "attributes": {
-    "name": "Tech Stocks"
-  },
-  "children": [
-    {
-      "blocktype": "Weight",
-      "attributes": {
-        "weight_type": "equal"
-      },
-      "children": [/* other blocks */]
-    }
-    /* additional blocks if needed */
-  ]
-}
-```
-- **IMPORTANT**: Automatically includes a Weight Block as its first child
-- The Weight Block manages the distribution among the group's elements
-- Can contain any other block types after the Weight Block
-- Used for logical grouping and organization
-- If no specific weighting is provided, the Weight Block defaults to equal distribution
-
-### 3. Weight Block
-Defines allocation strategies for funds across children blocks.
-```json
-{
-  "blocktype": "Weight",
-  "attributes": {
-    "weight_type": {
-      "type": "specified",
-      "allocation_type": "percentage",
-      "values": [40, 30, 30]
-    }
-  },
-  "children": [/* must match number of values */]
-}
-```
-
-Types of Weighting:
-- `equal`: Distributes equally among children
-- `specified`: Custom allocation with array of values (must sum to 100%)
-- `inverse_volatility`: Weights based on inverse of volatility
-- `market_cap`: Weights based on market capitalization
-
-Key Rule: For specified weights, the number of values must match the number of children exactly.
+- All fields are mandatory
 
 ### 4. Condition Block
-Implements if/else logic based on market conditions or metrics.
 ```json
 {
   "blocktype": "Condition",
-  "attributes": {
-    "condition": {
-      "function": {
-        "function_name": "current_price",
-        "window_of_days": null,
-        "asset": "TSLA"
-      }
-    },
-    "operator": ">",
-    "compare_to": {
-      "type": "fixed_value",
-      "value": 100,
-      "unit": "$"
+  "function": {
+    "function_name": "cumulative_return",
+    "window_of_days": 10,          // Optional, not needed for "current_price"
+    "asset": "TSLA"
+  },
+  "operator": ">",
+  "compare_to": {
+    "type": "fixed_value",
+    "value": 100
+  },
+  // OR
+  "compare_to": {
+    "type": "function",
+    "function": {
+      "function_name": "current_price",
+      "window_of_days": null,      // Optional, not needed for "current_price"
+      "asset": "QQQ"
     }
   },
-  "children": [/* exactly 2 blocks: if-true and if-false */]
+  "children": [
+    // Exactly 2 children required
+  ]
 }
 ```
-- Requires exactly two children (if-true and if-false blocks)
-- Optional window_of_days parameter depending on function
-- Supports comparison between functions or fixed values
+
+**Rules:**
+- Must have exactly 2 children:
+  1. First child: executed if condition is true
+  2. Second child: executed if condition is false
+- Function rules:
+  - For function_name "current_price": no window_of_days needed
+  - For all other functions: window_of_days required
+  - asset is always required
+- compare_to can be:
+  - fixed_value with a specified value
+  - function with same rules as above
 
 ### 5. Filter Block
-Selects assets based on sorting criteria.
 ```json
 {
   "blocktype": "Filter",
-  "attributes": {
-    "sort_function": {
-      "function_name": "cumulative_return",
-      "window_of_days": 2
-    },
-    "select": {
-      "option": "Top",
-      "amount": 3
-    }
+  "sort_function": {
+    "function_name": "cumulative_return",
+    "window_of_days": 10
   },
-  "children": [/* only Asset blocks allowed */]
+  "select": {
+    "option": "Top",
+    "amount": 3
+  },
+  "children": [
+    // Only Asset blocks allowed
+  ]
 }
 ```
-- Only accepts Asset blocks as children
-- If amount exceeds available assets, returns all available assets
+
+**Rules:**
+- Can only contain Asset blocks as children
+- If selected amount exceeds available assets, returns all available
 - No minimum number of children required
 
-## Nesting Rules
-- Group blocks must have a Weight Block as their first child
-- All blocks can be nested within each other EXCEPT:
-  - Asset blocks cannot have children
-  - Filter blocks can only have Asset blocks as children
-  - Condition blocks must have exactly two children
+## Function Rules
+1. `current_price`:
+   - No window_of_days needed
+   - Only requires asset
+
+2. All other functions (8 total):
+   - Require window_of_days
+   - Require asset
 
 ## Validation Rules
 1. Group Block:
-   - First child MUST be a Weight Block
-   - Additional children can be any block type
+   - First child must be Weight Block
+   - Weight Block must have valid type
 
-2. Weight Block (Specified):
-   - Values array must sum to 100%
-   - Number of values must match number of children
-   
+2. Weight Block:
+   - type must be one of: ["equal", "specified", "inverse_volatility", "market_cap"]
+   - For "specified":
+     - values array must have same length as children
+     - allocation_type must be "percentage" or "fraction"
+   - For "inverse_volatility":
+     - window_of_trading_days required
+
 3. Condition Block:
-   - Must have exactly two children
-   - window_of_days is optional based on function
+   - Exactly 2 children
+   - Valid function configuration
+   - Valid operator
+   - Valid compare_to configuration
 
 4. Filter Block:
-   - Only Asset blocks allowed as children
-   - amount can exceed available assets (will return all available)
+   - Only Asset blocks as children
+   - Valid sort_function
+   - Valid select criteria
 
-## Functions
-Functions are defined as enums rather than strings for type safety. Available functions include:
-- current_price
-- cumulative_return
-(Additional functions to be added based on requirements)
+Would you like me to add more details to any section or provide specific examples for certain scenarios?
 
-## Error Handling
-- Invalid block structure
-- Incorrect children types
-- Invalid weight distributions
-- Missing required attributes
-- Missing Weight Block in Group Block
-- Future: Non-tradeable assets
+MERMAID DIAGRAM:
 
-## Example Complex Structure
-```json
-{
-  "blocktype": "Group",
-  "attributes": {
-    "name": "Portfolio Strategy"
-  },
-  "children": [
-    {
-      "blocktype": "Weight",
-      "attributes": {
-        "weight_type": "equal"
-      },
-      "children": [
-        {
-          "blocktype": "Filter",
-          "attributes": {
-            "sort_function": {
-              "function_name": "cumulative_return",
-              "window_of_days": 30
-            },
-            "select": {
-              "option": "Top",
-              "amount": 5
-            }
-          },
-          "children": [/* Asset blocks */]
-        },
-        {
-          "blocktype": "Group",
-          "attributes": {
-            "name": "Conditional Investment"
-          },
-          "children": [
-            {
-              "blocktype": "Weight",
-              "attributes": {
-                "weight_type": "specified",
-                "values": [60, 40]
-              },
-              "children": [/* Additional blocks */]
-            }
-          ]
-        }
-      ]
+classDiagram
+    class Block {
+        +blocktype: string
+        +children: Block[]
     }
-  ]
-}
 
-WEIGHTS Appearances:
-// Equal weighting
-{
-  "blocktype": "Weight",
-  "attributes": {
+    class GroupBlock {
+        +blocktype: "Group"
+        +name: string
+        +children: Block[]
+        Note: First child always WeightBlock
+    }
 
-      "type": "equal"
+    class WeightBlock {
+        +blocktype: "Weight"
+        +type: string
+        +allocation_type?: string
+        +values?: number[]
+        +window_of_trading_days?: number
+        +children: Block[]
+    }
+
+    class AssetBlock {
+        +blocktype: "Asset"
+        +ticker: string
+        +company_name: string
+        +exchange: string
+        Note: No children allowed
+    }
+
+    class ConditionBlock {
+        +blocktype: "Condition"
+        +function: Function
+        +operator: string
+        +compare_to: CompareValue
+        +children[2]: Block[]
+        Note: Exactly 2 children
+    }
+
+    class FilterBlock {
+        +blocktype: "Filter"
+        +sort_function: Function
+        +select: SelectCriteria
+        +children: AssetBlock[]
+        Note: Only Asset children
+    }
+
+    class Function {
+        +function_name: string
+        +window_of_days?: number
+        +asset: string
+    }
+
+    class WeightType {
+        <<enumeration>>
+        equal
+        specified
+        inverse_volatility
+        market_cap
+    }
+
+    Block <|-- GroupBlock
+    Block <|-- WeightBlock
+    Block <|-- AssetBlock
+    Block <|-- ConditionBlock
+    Block <|-- FilterBlock
     
-  }
-}
-
-// Specified weighting
-{
-  "blocktype": "Weight",
-  "attributes": {
-
-      "type": "specified",
-      "allocation_type": "percentage",
-      "values": [30, 30, 30, 10]
-    }
-  
-}
-
-// Inverse volatility weighting
-{
-  "blocktype": "Weight",
-  "attributes": {
-
-      "type": "inverse_volatility",
-      "window_of_trading_days": 20
+    GroupBlock --> WeightBlock : first child
+    WeightBlock --> WeightType : type
+    ConditionBlock --> Function
+    FilterBlock --> Function
+    FilterBlock --> AssetBlock
     
-  }
-}
-
-// Market cap weighting
-{
-  "blocktype": "Weight",
-  "attributes": {
-    "weight_type": {
-      "type": "market_cap"
-    }
-  }
-}
-```
-
-## Future Considerations
-1. Asset metadata expansion
-   - Currency
-   - Asset class
-   - Trading status
-2. Advanced validation for non-tradeable assets
-3. Additional function types
-4. Performance optimization for deep nested structures
-5. Extended Weight Block configuration options
+    note for WeightBlock "Type determines required fields:
+    - equal: no additional fields
+    - specified: allocation_type & values
+    - inverse_volatility: window_of_trading_days
+    - market_cap: no additional fields"
+    
+    note for Function "current_price: no window_of_days needed
+    all other functions: window_of_days required"

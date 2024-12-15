@@ -47,8 +47,8 @@ struct StartDateResult {
 }
 pub async fn get_start_date(
     pool: &Pool<Postgres>,
-    ticker: &str,
-    execution_date: &str,
+    ticker: &String,
+    execution_date: &String,
     trading_days: i64,
 ) -> Result<String, DatabaseError> {
     // Still return String as planned
@@ -140,8 +140,8 @@ struct SMAResult {
 
 pub async fn get_sma(
     pool: &Pool<Postgres>,
-    ticker: &str,
-    execution_date: &str,
+    ticker: &String,
+    execution_date: &String,
     period: i64,
 ) -> Result<f64, DatabaseError> {
     validate_ticker(&ticker)?;
@@ -205,8 +205,8 @@ pub struct CurrentPrice {
 
 pub async fn get_current_price(
     pool: &Pool<Postgres>,
-    ticker: &str,
-    execution_date: &str,
+    ticker: &String,
+    execution_date: &String,
 ) -> Result<CurrentPrice, DatabaseError> {
     validate_ticker(&ticker)?;
 
@@ -243,8 +243,8 @@ struct CumulativeReturnResult {
 
 pub async fn get_cumulative_return(
     pool: &Pool<Postgres>,
-    ticker: &str,
-    execution_date: &str,
+    ticker: &String,
+    execution_date: &String,
     period: i64,
 ) -> Result<f64, DatabaseError> {
     // Validate inputs
@@ -296,6 +296,7 @@ pub async fn get_cumulative_return(
         ));
     }
 
+    println!("Received cummulative return");
     Ok(record)
 }
 
@@ -306,8 +307,8 @@ struct EMAResult {
 
 pub async fn get_ema(
     pool: &Pool<Postgres>,
-    ticker: &str,
-    execution_date: &str,
+    ticker: &String,
+    execution_date: &String,
     period: i64,
 ) -> Result<f64, DatabaseError> {
     validate_ticker(&ticker)?;
@@ -382,8 +383,8 @@ struct PriceResult {
 
 pub async fn get_max_drawdown(
     pool: &Pool<Postgres>,
-    ticker: &str,
-    execution_date: &str,
+    ticker: &String,
+    execution_date: &String,
     period: i64,
 ) -> Result<DrawdownResult, DatabaseError> {
     validate_ticker(&ticker)?;
@@ -467,8 +468,8 @@ struct MAResult {
 
 pub async fn get_ma_of_price(
     pool: &Pool<Postgres>,
-    ticker: &str,
-    execution_date: &str,
+    ticker: &String,
+    execution_date: &String,
     period: i64,
 ) -> Result<f64, DatabaseError> {
     validate_ticker(&ticker)?;
@@ -534,8 +535,8 @@ struct ReturnPriceResult {
 
 pub async fn get_ma_of_returns(
     pool: &Pool<Postgres>,
-    ticker: &str,
-    execution_date: &str,
+    ticker: &String,
+    execution_date: &String,
     period: i64,
 ) -> Result<f64, DatabaseError> {
     validate_ticker(&ticker)?;
@@ -636,8 +637,8 @@ struct RSIResult {
 }
 pub async fn get_rsi(
     pool: &Pool<Postgres>,
-    ticker: &str,
-    execution_date: &str,
+    ticker: &String,
+    execution_date: &String,
     period: i64,
 ) -> Result<f64, DatabaseError> {
     validate_ticker(&ticker)?;
@@ -743,8 +744,8 @@ struct PriceStdDevResult {
 }
 pub async fn get_price_std_dev(
     pool: &Pool<Postgres>,
-    ticker: &str,
-    execution_date: &str,
+    ticker: &String,
+    execution_date: &String,
     period: i64,
 ) -> Result<f64, DatabaseError> {
     // Validate inputs
@@ -827,8 +828,8 @@ struct StdDevPriceResult {
 
 pub async fn get_returns_std_dev(
     pool: &Pool<Postgres>,
-    ticker: &str,
-    execution_date: &str,
+    ticker: &String,
+    execution_date: &String,
     period: i64,
 ) -> Result<f64, DatabaseError> {
     // Validate inputs
@@ -920,8 +921,8 @@ pub async fn get_returns_std_dev(
 
 pub async fn get_market_cap(
     pool: &Pool<Postgres>,
-    ticker: &str,
-    execution_date: &str,
+    ticker: &String,
+    execution_date: &String,
 ) -> Result<f64, DatabaseError> {
     // TODO: Implement actual market cap calculation
     // For now, return a dummy value

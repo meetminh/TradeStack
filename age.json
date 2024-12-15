@@ -1,0 +1,50 @@
+{
+  "blocktype": "Group",
+  "name": "S&P 500 Conservative Income Strategy",
+  "children": [
+    {
+      "blocktype": "Weight",
+      "type": "specified",
+      "allocation_type": "percentage",
+      "values": [25, 20, 15, 15, 15, 10],
+      "children": [
+        {
+          "blocktype": "Asset",
+          "ticker": "JNJ",
+          "company_name": "Johnson & Johnson",
+          "exchange": "NYSE"
+        },
+        {
+          "blocktype": "Asset",
+          "ticker": "PG",
+          "company_name": "Procter & Gamble",
+          "exchange": "NYSE"
+        },
+        {
+          "blocktype": "Asset",
+          "ticker": "KO",
+          "company_name": "Coca-Cola Company",
+          "exchange": "NYSE"
+        },
+        {
+          "blocktype": "Asset",
+          "ticker": "PEP",
+          "company_name": "PepsiCo Inc.",
+          "exchange": "NASDAQ"
+        },
+        {
+          "blocktype": "Asset",
+          "ticker": "CVX",
+          "company_name": "Chevron Corporation",
+          "exchange": "NYSE"
+        },
+        {
+          "blocktype": "Asset",
+          "ticker": "MRK",
+          "company_name": "Merck & Co.",
+          "exchange": "NYSE"
+        }
+      ]
+    }
+  ]
+}

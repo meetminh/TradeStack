@@ -1,0 +1,153 @@
+{
+  "blocktype": "Group",
+  "name": "Semi-Passive Quality Strategy",
+  "children": [
+    {
+      "blocktype": "Weight",
+      "type": "specified",
+      "allocation_type": "percentage",
+      "values": [60, 40],
+      "children": [
+        {
+          "blocktype": "Condition",
+          "function": {
+            "function_name": "cumulative_return",
+            "window_of_days": 200,
+            "asset": "SPY"
+          },
+          "operator": ">",
+          "compare_to": {
+            "type": "fixed_value",
+            "value": -10
+          },
+          "children": [
+            {
+              "blocktype": "Group",
+              "name": "Quality Stocks Portfolio",
+              "children": [
+                {
+                  "blocktype": "Weight",
+                  "type": "inverse_volatility",
+                  "window_of_trading_days": 100,
+                  "children": [
+                    {
+                      "blocktype": "Filter",
+                      "sort_function": {
+                        "function_name": "cumulative_return",
+                        "window_of_days": 100
+                      },
+                      "select": {
+                        "option": "Top",
+                        "amount": 5
+                      },
+                      "children": [
+                        {
+                          "blocktype": "Asset",
+                          "ticker": "JNJ",
+                          "company_name": "Johnson & Johnson",
+                          "exchange": "NYSE"
+                        },
+                        {
+                          "blocktype": "Asset",
+                          "ticker": "PG",
+                          "company_name": "Procter & Gamble",
+                          "exchange": "NYSE"
+                        },
+                        {
+                          "blocktype": "Asset",
+                          "ticker": "KO",
+                          "company_name": "Coca-Cola Company",
+                          "exchange": "NYSE"
+                        },
+                        {
+                          "blocktype": "Asset",
+                          "ticker": "PEP",
+                          "company_name": "PepsiCo Inc.",
+                          "exchange": "NASDAQ"
+                        },
+                        {
+                          "blocktype": "Asset",
+                          "ticker": "MRK",
+                          "company_name": "Merck & Co.",
+                          "exchange": "NYSE"
+                        },
+                        {
+                          "blocktype": "Asset",
+                          "ticker": "WMT",
+                          "company_name": "Walmart Inc.",
+                          "exchange": "NYSE"
+                        },
+                        {
+                          "blocktype": "Asset",
+                          "ticker": "HD",
+                          "company_name": "Home Depot Inc.",
+                          "exchange": "NYSE"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "blocktype": "Group",
+              "name": "Defensive Quality Portfolio",
+              "children": [
+                {
+                  "blocktype": "Weight",
+                  "type": "specified",
+                  "allocation_type": "percentage",
+                  "values": [60, 40],
+                  "children": [
+                    {
+                      "blocktype": "Asset",
+                      "ticker": "PG",
+                      "company_name": "Procter & Gamble",
+                      "exchange": "NYSE"
+                    },
+                    {
+                      "blocktype": "Asset",
+                      "ticker": "JNJ",
+                      "company_name": "Johnson & Johnson",
+                      "exchange": "NYSE"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "blocktype": "Group",
+          "name": "Fixed Core Holdings",
+          "children": [
+            {
+              "blocktype": "Weight",
+              "type": "market_cap",
+              "children": [
+                {
+                  "blocktype": "Asset",
+                  "ticker": "MSFT",
+                  "company_name": "Microsoft Corporation",
+                  "exchange": "NASDAQ"
+                },
+                {
+                  "blocktype": "Asset",
+                  "ticker": "BRK.B",
+                  "company_name": "Berkshire Hathaway Inc.",
+                  "exchange": "NYSE"
+                },
+                {
+                  "blocktype": "Asset",
+                  "ticker": "V",
+                  "company_name": "Visa Inc.",
+                  "exchange": "NYSE"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

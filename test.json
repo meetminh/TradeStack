@@ -1,0 +1,91 @@
+{
+  "blocktype": "Group",
+  "name": "Balanced Tech Strategy",
+  "children": [
+    {
+      "blocktype": "Weight",
+      "type": "equal",
+      "children": [
+        {
+          "blocktype": "Condition",
+          "function": {
+            "function_name": "volatility",
+            "window_of_days": 30,
+            "asset": "VIX"
+          },
+          "operator": ">",
+          "compare_to": {
+            "type": "fixed_value",
+            "value": 25
+          },
+          "children": [
+            {
+              "blocktype": "Group",
+              "name": "Conservative Tech Portfolio",
+              "children": [
+                {
+                  "blocktype": "Weight",
+                  "type": "specified",
+                  "allocation_type": "percentage",
+                  "values": [30, 20, 20, 30],
+                  "children": [
+                    {
+                      "blocktype": "Asset",
+                      "ticker": "MSFT",
+                      "company_name": "Microsoft Corporation",
+                      "exchange": "NASDAQ"
+                    },
+                    {
+                      "blocktype": "Asset",
+                      "ticker": "AAPL",
+                      "company_name": "Apple Inc.",
+                      "exchange": "NASDAQ"
+                    },
+                    {
+                      "blocktype": "Asset",
+                      "ticker": "V",
+                      "company_name": "Visa Inc.",
+                      "exchange": "NYSE"
+                    },
+                    {
+                      "blocktype": "Asset",
+                      "ticker": "TLT",
+                      "company_name": "iShares 20+ Year Treasury Bond ETF",
+                      "exchange": "NASDAQ"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "blocktype": "Group",
+              "name": "Safe Haven",
+              "children": [
+                {
+                  "blocktype": "Weight",
+                  "type": "specified",
+                  "allocation_type": "percentage",
+                  "values": [60, 40],
+                  "children": [
+                    {
+                      "blocktype": "Asset",
+                      "ticker": "SHY",
+                      "company_name": "iShares 1-3 Year Treasury Bond ETF",
+                      "exchange": "NASDAQ"
+                    },
+                    {
+                      "blocktype": "Asset",
+                      "ticker": "GLD",
+                      "company_name": "SPDR Gold Shares",
+                      "exchange": "NYSE"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
