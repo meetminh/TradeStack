@@ -84,7 +84,8 @@ Every block must have:
   "operator": ">",
   "compare_to": {
     "type": "fixed_value",
-    "value": 100
+    "value": 100,
+    "unit": $
   },
   // OR
   "compare_to": {
@@ -112,6 +113,8 @@ Every block must have:
 - compare_to can be:
   - fixed_value with a specified value
   - function with same rules as above
+- if fixed value is selected
+  - fixed value can be given in $ or in % depending on the function selected.
 
 ### 5. Filter Block
 ```json

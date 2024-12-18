@@ -55,6 +55,9 @@ use std::error::Error;
 use std::fs;
 use std::time::Instant;
 use sysinfo::{ProcessExt, System, SystemExt};
+use tokio::time::sleep;
+use tokio::time::Duration;
+use tracing::error;
 use tracing::info; // Add this import
 
 // pub async fn create_pool() -> Result<sqlx::Pool<sqlx::Postgres>, sqlx::Error> {
@@ -97,13 +100,139 @@ struct StockData {
     volume: i64,
 }
 
+// #[tokio::main]
+// async fn main() -> Result<(), Box<dyn Error>> {
+//     // Initialize logging
+//     tracing_subscriber::fmt::init();
+
+//     // Measure start time
+//     let start_time = Instant::now();
+
+//     // Create and test database pool
+//     let pool = create_pool().await?;
+//     let version = sqlx::query_scalar::<_, String>("SELECT version()")
+//         .fetch_one(&pool)
+//         .await?;
+//     info!("Connected to QuestDB version: {}", version);
+
+//     // Measure memory usage before execution
+//     let mut sys = System::new_all();
+//     sys.refresh_all();
+//     let process_id = sysinfo::get_current_pid().unwrap();
+//     let memory_before = sys.process(process_id).unwrap().memory();
+
+//     // // After pool creation, add this:
+//     // info!("Testing JSON deserialization...");
+
+//     let ticker = "AAPL".to_string();
+//     let execution_date = Utc
+//         .with_ymd_and_hms(2005, 12, 12, 5, 0, 0)
+//         .unwrap()
+//         .to_rfc3339();
+//     let period: i64 = 20;
+
+//     // Test all database functions
+//     println!("\n=== Testing Database Functions ===");
+
+//     let current_price =
+//         block::database_functions::get_current_price(&pool, &ticker, &execution_date).await?;
+//     println!("Current Price: ${:.2}", current_price.close);
+
+//     let sma = block::database_functions::get_sma(&pool, &ticker, &execution_date, period).await?;
+//     println!("SMA ({}): ${:.2}", period, sma);
+
+//     let ema = block::database_functions::get_ema(&pool, &ticker, &execution_date, period).await?;
+//     println!("EMA ({}): ${:.2}", period, ema);
+
+//     let cumulative_return =
+//         block::database_functions::get_cumulative_return(&pool, &ticker, &execution_date, period)
+//             .await?;
+//     println!("Cumulative Return ({}): {:.2}%", period, cumulative_return);
+
+//     let ma_price =
+//         block::database_functions::get_ma_of_price(&pool, &ticker, &execution_date, period).await?;
+//     println!("MA of Price ({}): ${:.2}", period, ma_price);
+
+//     let ma_returns =
+//         block::database_functions::get_ma_of_returns(&pool, &ticker, &execution_date, period)
+//             .await?;
+//     println!("MA of Returns ({}): {:.2}%", period, ma_returns);
+
+//     let rsi = block::database_functions::get_rsi(&pool, &ticker, &execution_date, 14).await?;
+//     println!("RSI (14): {:.2}", rsi);
+
+//     let drawdown =
+//         block::database_functions::get_max_drawdown(&pool, &ticker, &execution_date, period)
+//             .await?;
+//     println!("Max Drawdown: {:.2}%", drawdown.max_drawdown_percentage);
+
+//     let std_dev =
+//         block::database_functions::get_returns_std_dev(&pool, &ticker, &execution_date, period)
+//             .await?;
+//     println!("Returns StdDev: {:.2}%", std_dev);
+
+//     // // Read strategy from JSON file
+//     // let execution_date = Utc
+//     //     .with_ymd_and_hms(2005, 12, 12, 5, 0, 0)
+//     //     .unwrap()
+//     //     .to_rfc3339();
+
+//     // // Read and execute strategy
+//     // let json_str = fs::read_to_string("input.json")?;
+//     // let strategy = match validate_json::deserialize_json(&json_str) {
+//     //     Ok(strategy) => strategy,
+//     //     Err(e) => {
+//     //         eprintln!("Error parsing strategy: {}", e);
+//     //         return Err(e.into());
+//     //     }
+//     // };
+
+//     info!("Strategy validation successful");
+
+//     // Measure memory usage after execution
+//     sys.refresh_all();
+//     let memory_after = sys.process(process_id).unwrap().memory();
+
+//     // Print results
+//     println!("\nFinal Portfolio Allocations:");
+
+//     // Measure end time
+//     let duration = start_time.elapsed();
+//     println!("\nExecution Time: {:?}", duration);
+//     println!("Memory Usage: {} KB", memory_after - memory_before);
+
+//     Ok(())
+// }
+
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+
+//     #[tokio::test]
+//     async fn test_database_connection() -> Result<(), Box<dyn Error>> {
+//         let pool = create_pool().await?;
+
+//         // Test simple query
+//         // Test simple query
+//         sqlx::query_as::<_, (i32,)>("SELECT 1 FROM trades_pg LIMIT 1")
+//             .fetch_one(&pool)
+//             .await?;
+
+//         Ok(())
+//     }
+
+//     #[test]
+//     fn test_json_reading() -> Result<(), Box<dyn Error>> {
+//         let json_str = fs::read_to_string("input.json")?;
+//         assert!(!json_str.is_empty());
+//         Ok(())
+//     }
+// }
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     // Initialize logging
     tracing_subscriber::fmt::init();
-
-    // Measure start time
-    let start_time = Instant::now();
 
     // Create and test database pool
     let pool = create_pool().await?;
@@ -112,102 +241,28 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .await?;
     info!("Connected to QuestDB version: {}", version);
 
-    // Measure memory usage before execution
-    let mut sys = System::new_all();
-    sys.refresh_all();
-    let process_id = sysinfo::get_current_pid().unwrap();
-    let memory_before = sys.process(process_id).unwrap().memory();
+    // Read and validate input file
+    let json_str = fs::read_to_string("test.json")?;
+    if json_str.is_empty() {
+        return Err("Empty input file".into());
+    }
 
-    // let ticker = "AAPL".to_string();
-    // let execution_date = Utc
-    //     .with_ymd_and_hms(2005, 12, 12, 5, 0, 0)
-    //     .unwrap()
-    //     .to_rfc3339();
-    // let period: i64 = 20;
-
-    // // Test all database functions
-    // println!("\n=== Testing Database Functions ===");
-
-    // let current_price =
-    //     database_functions::get_current_price(&pool, &ticker, &execution_date).await?;
-    // println!("Current Price: ${:.2}", current_price.close);
-
-    // let sma = database_functions::get_sma(&pool, &ticker, &execution_date, period).await?;
-    // println!("SMA ({}): ${:.2}", period, sma);
-
-    // let ema = database_functions::get_ema(&pool, &ticker, &execution_date, period).await?;
-    // println!("EMA ({}): ${:.2}", period, ema);
-
-    // let cumulative_return =
-    //     database_functions::get_cumulative_return(&pool, &ticker, &execution_date, period).await?;
-    // println!("Cumulative Return ({}): {:.2}%", period, cumulative_return);
-
-    // let ma_price =
-    //     database_functions::get_ma_of_price(&pool, &ticker, &execution_date, period).await?;
-    // println!("MA of Price ({}): ${:.2}", period, ma_price);
-
-    // let ma_returns =
-    //     database_functions::get_ma_of_returns(&pool, &ticker, &execution_date, period).await?;
-    // println!("MA of Returns ({}): {:.2}%", period, ma_returns);
-
-    // let rsi = database_functions::get_rsi(&pool, &ticker, &execution_date, 14).await?;
-    // println!("RSI (14): {:.2}", rsi);
-
-    // let drawdown =
-    //     database_functions::get_max_drawdown(&pool, &ticker, &execution_date, period).await?;
-    // println!("Max Drawdown: {:.2}%", drawdown.max_drawdown_percentage);
-
-    // let std_dev =
-    //     database_functions::get_returns_std_dev(&pool, &ticker, &execution_date, period).await?;
-    // println!("Returns StdDev: {:.2}%", std_dev);
-
-    info!("Database connection test successful");
-    // Read strategy from JSON file
-    let execution_date = Utc
-        .with_ymd_and_hms(2005, 12, 12, 5, 0, 0)
+    // Parse strategy and execute
+    let strategy = validate_json::deserialize_json(&json_str)?;
+    let execution_date = chrono::Utc
+        .with_ymd_and_hms(2023, 12, 12, 5, 0, 0)
         .unwrap()
         .to_rfc3339();
 
-    // Read and execute strategy
-    let json_str = fs::read_to_string("test_all.json")?;
-    let strategy = match validate_json::deserialize_json(&json_str) {
-        Ok(strategy) => strategy,
-        Err(e) => {
-            eprintln!("Error parsing strategy: {}", e);
-            return Err(e.into());
-        }
-    };
+    info!("Executing strategy...");
+    let allocations =
+        strategy_executor::execute_strategy(&strategy, &pool, &execution_date).await?;
 
-    info!("Strategy validation successful");
-
-    // let allocations =
-    //     match strategy_executor::execute_strategy(&strategy, &pool, &execution_date).await {
-    //         Ok(allocs) => allocs,
-    //         Err(e) => {
-    //             eprintln!("Error executing strategy: {}", e);
-    //             return Err(e.into());
-    //         }
-    //     };
-
-    // Measure memory usage after execution
-    sys.refresh_all();
-    let memory_after = sys.process(process_id).unwrap().memory();
     // Print results
-    // println!("\nFinal Portfolio Allocations:");
-    // println!("----------------------------");
-    // for allocation in allocations {
-    //     println!(
-    //         "Ticker: {:5} | Weight: {:6.2}% | Date: {}",
-    //         allocation.ticker,
-    //         allocation.weight * 100.0,
-    //         allocation.date
-    //     );
-    // }
-
-    // Measure end time
-    let duration = start_time.elapsed();
-    println!("\nExecution Time: {:?}", duration);
-    println!("Memory Usage: {} KB", memory_after - memory_before);
+    println!("\nFinal Portfolio Allocations:");
+    for allocation in allocations {
+        println!("{}: {:.2}%", allocation.ticker, allocation.weight * 100.0);
+    }
 
     Ok(())
 }
@@ -217,20 +272,32 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_database_connection() -> Result<(), Box<dyn Error>> {
+    async fn test_with_delay() -> Result<(), Box<dyn Error>> {
         let pool = create_pool().await?;
+        let ticker = "AAPL".to_string();
+        let execution_date = chrono::Utc
+            .with_ymd_and_hms(2005, 12, 12, 5, 0, 0)
+            .unwrap()
+            .to_rfc3339();
 
-        // Test simple query
-        // Test simple query
-        sqlx::query_as::<_, (i32,)>("SELECT 1 FROM trades_pg LIMIT 1")
-            .fetch_one(&pool)
-            .await?;
+        // Test sequence with delays
+        let current_price =
+            block::database_functions::get_current_price(&pool, &ticker, &execution_date).await?;
+        sleep(Duration::from_millis(100)).await;
+
+        let cumulative_return =
+            block::database_functions::get_cumulative_return(&pool, &ticker, &execution_date, 20)
+                .await?;
+        sleep(Duration::from_millis(100)).await;
+
+        assert!(current_price.close > 0.0);
+        assert!(cumulative_return.is_finite());
 
         Ok(())
     }
 
-    #[test]
-    fn test_json_reading() -> Result<(), Box<dyn Error>> {
+    #[tokio::test]
+    async fn test_json_reading() -> Result<(), Box<dyn Error>> {
         let json_str = fs::read_to_string("input.json")?;
         assert!(!json_str.is_empty());
         Ok(())

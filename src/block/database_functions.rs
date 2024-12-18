@@ -210,8 +210,6 @@ pub async fn get_current_price(
 ) -> Result<CurrentPrice, DatabaseError> {
     validate_ticker(&ticker)?;
 
-    println!("STart getting price");
-
     sqlx::query(
         "SELECT time, ticker, close
          FROM stock_data
@@ -229,7 +227,7 @@ pub async fn get_current_price(
     .await
     .map_err(|e| match e {
         sqlx::Error::RowNotFound => DatabaseError::InsufficientData(format!(
-            "No price data found for {} at or before {}",
+            "No price data found for {} at {}",
             ticker, execution_date
         )),
         other => DatabaseError::SqlxError(other),
@@ -247,11 +245,9 @@ pub async fn get_cumulative_return(
     execution_date: &String,
     period: i64,
 ) -> Result<f64, DatabaseError> {
-    // Validate inputs
     validate_ticker(&ticker)?;
     validate_period(period, "Return period")?;
 
-    // Calculate start date using the helper function
     let start_date = get_start_date(&pool, &ticker, &execution_date, period).await?;
 
     let record = sqlx::query(
@@ -282,21 +278,11 @@ pub async fn get_cumulative_return(
     .map_err(|e| match e {
         sqlx::Error::RowNotFound => DatabaseError::InsufficientData(format!(
             "No price data found for {} between {} and {}",
-            ticker,
-            start_date,
-            execution_date // Can use start_date here now
+            ticker, start_date, execution_date
         )),
         other => DatabaseError::SqlxError(other),
     })?;
 
-    // Add validation check for the result
-    if !record.is_finite() {
-        return Err(DatabaseError::InvalidCalculation(
-            "Calculation resulted in invalid value".to_string(),
-        ));
-    }
-
-    println!("Received cummulative return");
     Ok(record)
 }
 
