@@ -116,13 +116,13 @@ pub trait Validate {
 }
 
 pub fn deserialize_json(json_str: &str) -> Result<Block, Box<dyn std::error::Error>> {
-    println!("Attempting to deserialize JSON:");
-    println!("{}", json_str);
+    // println!("Attempting to deserialize JSON:");
+    // println!("{}", json_str);
 
     match serde_json::from_str::<Block>(json_str) {
         Ok(block) => {
-            println!("Successfully deserialized to:");
-            println!("{:#?}", block);
+            // println!("Successfully deserialized to:");
+            // println!("{:#?}", block);
             Ok(block)
         }
         Err(e) => {
