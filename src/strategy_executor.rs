@@ -1,12 +1,13 @@
 use crate::block::database_functions::{self, DatabaseError};
+use crate::block::filter::apply_filter;
 use crate::models::{
     Block, BlockAttributes, CompareToValue, ComparisonOperator, FunctionDefinition, FunctionName,
     SelectOption, WeightType,
 };
-use sqlx::Pool;
-use sqlx::Postgres;
+use deadpool_postgres::{Client, Pool}; // Import Pool and Client from deadpool-postgres
 use std::future::Future;
 use std::pin::Pin;
+use tokio_postgres::Error as PgError;
 use tracing::{debug, info, warn};
 
 #[derive(Debug, Clone)]
@@ -35,7 +36,7 @@ impl Allocation {
 
 pub async fn execute_strategy(
     block: &Block,
-    pool: &Pool<Postgres>,
+    pool: &Pool,
     execution_date: &String,
 ) -> Result<Vec<Allocation>, DatabaseError> {
     info!("Starting strategy execution for date: {}", execution_date);
@@ -47,7 +48,7 @@ type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 fn execute_block<'a>(
     block: &'a Block,
-    pool: &'a Pool<Postgres>,
+    pool: &'a Pool,
     execution_date: &'a String,
     parent_weight: f64,
 ) -> BoxFuture<'a, Result<Vec<Allocation>, DatabaseError>> {
@@ -120,54 +121,15 @@ fn execute_block<'a>(
                 select,
             } => {
                 if let Some(children) = &block.children {
-                    let mut ticker_values = Vec::with_capacity(children.len());
-
-                    // Collect all tickers and their sort values
-                    for child in children {
-                        if let BlockAttributes::Asset { ticker, .. } = &child.attributes {
-                            let value = evaluate_function(
-                                &FunctionDefinition {
-                                    function_name: sort_function.function_name.clone(),
-                                    window_of_days: Some(sort_function.window_of_days),
-                                    asset: ticker.clone(),
-                                },
-                                pool,
-                                execution_date,
-                            )
-                            .await?;
-                            ticker_values.push((ticker.clone(), value));
-                        }
-                    }
-
-                    // Sort based on values
-                    ticker_values
-                        .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-
-                    // Select top/bottom N
-                    let selected_tickers: Vec<String> = match select.option {
-                        SelectOption::Top => ticker_values
-                            .iter()
-                            .take(select.amount as usize)
-                            .map(|(ticker, _)| ticker.clone())
-                            .collect(),
-                        SelectOption::Bottom => ticker_values
-                            .iter()
-                            .rev()
-                            .take(select.amount as usize)
-                            .map(|(ticker, _)| ticker.clone())
-                            .collect(),
-                    };
-
-                    // Create allocations with equal weights for selected tickers
-                    let weight_per_ticker = parent_weight / selected_tickers.len() as f64;
-                    Ok(selected_tickers
-                        .into_iter()
-                        .map(|ticker| Allocation {
-                            ticker,
-                            weight: weight_per_ticker,
-                            date: execution_date.clone(),
-                        })
-                        .collect())
+                    apply_filter(
+                        pool,
+                        sort_function,
+                        select,
+                        children,
+                        execution_date,
+                        parent_weight,
+                    )
+                    .await
                 } else {
                     Ok(Vec::new())
                 }
@@ -183,7 +145,7 @@ fn execute_block<'a>(
 
 async fn execute_children<'a>(
     children: &'a [Block],
-    pool: &'a Pool<Postgres>,
+    pool: &'a Pool,
     execution_date: &'a String,
     weight: f64,
 ) -> Result<Vec<Allocation>, DatabaseError> {
@@ -199,39 +161,69 @@ async fn evaluate_condition(
     function: &FunctionDefinition,
     operator: &ComparisonOperator,
     compare_to: &CompareToValue,
-    pool: &Pool<Postgres>,
+    pool: &Pool,
     execution_date: &String,
 ) -> Result<bool, DatabaseError> {
-    let function_value = evaluate_function(function, pool, execution_date).await?;
+    debug!(
+        "Starting condition evaluation: {:?} {:?}",
+        function.function_name, operator
+    );
 
+    // First function evaluation
+    debug!("Evaluating first function: {:?}", function);
+    let function_value = evaluate_function(function, pool, execution_date).await?;
+    debug!("First function value: {}", function_value);
+
+    // Second function/value evaluation
     let compare_value = match compare_to {
         CompareToValue::Function {
             function: compare_function,
-        } => evaluate_function(compare_function, pool, execution_date).await?,
-        CompareToValue::Fixed { value, .. } => *value,
+        } => {
+            debug!("Evaluating comparison function: {:?}", compare_function);
+            evaluate_function(compare_function, pool, execution_date).await?
+        }
+        CompareToValue::Fixed { value, .. } => {
+            debug!("Using fixed comparison value: {}", value);
+            *value
+        }
     };
+    debug!("Comparison value: {}", compare_value);
 
-    Ok(match operator {
+    // Final comparison
+    let result = match operator {
         ComparisonOperator::GreaterThan => function_value > compare_value,
         ComparisonOperator::LessThan => function_value < compare_value,
         ComparisonOperator::Equal => (function_value - compare_value).abs() < f64::EPSILON,
         ComparisonOperator::GreaterThanOrEqual => function_value >= compare_value,
         ComparisonOperator::LessThanOrEqual => function_value <= compare_value,
-    })
+    };
+
+    debug!(
+        "Condition result: {} {:?} {} = {}",
+        function_value, operator, compare_value, result
+    );
+
+    Ok(result)
 }
 use tokio::time::sleep;
 use tokio::time::Duration;
 
 async fn evaluate_function(
     function: &FunctionDefinition,
-    pool: &Pool<Postgres>,
+    pool: &Pool,
     execution_date: &String,
 ) -> Result<f64, DatabaseError> {
-    let sleeptime: u64 = 20;
+    debug!("Evaluating function with date: {}", execution_date);
+    info!("Start eval");
+    let sleeptime: u64 = 80;
+
+    // Get a client from the pool
+    let client = pool.get().await?;
+
     match function.function_name {
         FunctionName::CumulativeReturn => {
             let result = database_functions::get_cumulative_return(
-                pool,
+                &client, // Pass the client instead of the pool
                 &function.asset,
                 execution_date,
                 function.window_of_days.unwrap_or(20) as i64,
@@ -241,15 +233,18 @@ async fn evaluate_function(
             Ok(result)
         }
         FunctionName::CurrentPrice => {
-            let price =
-                database_functions::get_current_price(pool, &function.asset, execution_date)
-                    .await?;
+            let price = database_functions::get_current_price(
+                &client, // Pass the client instead of the pool
+                &function.asset,
+                execution_date,
+            )
+            .await?;
             sleep(Duration::from_millis(sleeptime)).await;
             Ok(price.close)
         }
         FunctionName::RelativeStrengthIndex => {
             let rsi = database_functions::get_rsi(
-                pool,
+                &client, // Pass the client instead of the pool
                 &function.asset,
                 execution_date,
                 function.window_of_days.unwrap_or(14) as i64,
@@ -260,7 +255,7 @@ async fn evaluate_function(
         }
         FunctionName::SimpleMovingAverage => {
             let sma = database_functions::get_sma(
-                pool,
+                &client, // Pass the client instead of the pool
                 &function.asset,
                 execution_date,
                 function.window_of_days.unwrap_or(20) as i64,
@@ -271,7 +266,7 @@ async fn evaluate_function(
         }
         FunctionName::ExponentialMovingAverage => {
             let ema = database_functions::get_ema(
-                pool,
+                &client, // Pass the client instead of the pool
                 &function.asset,
                 execution_date,
                 function.window_of_days.unwrap_or(20) as i64,
@@ -282,7 +277,7 @@ async fn evaluate_function(
         }
         FunctionName::MovingAverageOfPrice => {
             let ma_price = database_functions::get_ma_of_price(
-                pool,
+                &client, // Pass the client instead of the pool
                 &function.asset,
                 execution_date,
                 function.window_of_days.unwrap_or(20) as i64,
@@ -293,7 +288,7 @@ async fn evaluate_function(
         }
         FunctionName::MovingAverageOfReturns => {
             let ma_returns = database_functions::get_ma_of_returns(
-                pool,
+                &client, // Pass the client instead of the pool
                 &function.asset,
                 execution_date,
                 function.window_of_days.unwrap_or(20) as i64,
@@ -304,7 +299,7 @@ async fn evaluate_function(
         }
         FunctionName::PriceStandardDeviation => {
             let price_std = database_functions::get_price_std_dev(
-                pool,
+                &client, // Pass the client instead of the pool
                 &function.asset,
                 execution_date,
                 function.window_of_days.unwrap_or(20) as i64,
@@ -315,7 +310,7 @@ async fn evaluate_function(
         }
         FunctionName::ReturnsStandardDeviation => {
             let returns_std = database_functions::get_returns_std_dev(
-                pool,
+                &client, // Pass the client instead of the pool
                 &function.asset,
                 execution_date,
                 function.window_of_days.unwrap_or(20) as i64,
@@ -325,14 +320,17 @@ async fn evaluate_function(
             Ok(returns_std)
         }
         FunctionName::MarketCap => {
-            let market_cap =
-                database_functions::get_market_cap(pool, &function.asset, execution_date).await?;
+            let market_cap = database_functions::get_market_cap(
+                &client, // Pass the client instead of the pool
+                &function.asset,
+                execution_date,
+            )
+            .await?;
             sleep(Duration::from_millis(sleeptime)).await;
             Ok(market_cap)
         }
     }
 }
-
 fn normalize_weights(allocations: &[Allocation]) -> Result<Vec<Allocation>, DatabaseError> {
     if allocations.is_empty() {
         return Err(DatabaseError::InvalidCalculation(

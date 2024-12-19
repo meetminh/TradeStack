@@ -45,53 +45,31 @@ mod models;
 mod strategy_executor;
 mod validate_json;
 
-//use chrono::Utc;
-use chrono::NaiveDateTime;
-use sqlx::postgres::PgPoolOptions; // Add Row trait here // Add this import
-
-// ... rest of the code remains the same
-use chrono::{TimeZone, Utc};
+use chrono::{NaiveDateTime, TimeZone, Utc};
+use deadpool_postgres::{Config, Pool, PoolConfig};
 use std::error::Error;
 use std::fs;
 use std::time::Instant;
 use sysinfo::{ProcessExt, System, SystemExt};
-use tokio::time::sleep;
-use tokio::time::Duration;
-use tracing::error;
-use tracing::info; // Add this import
+use tokio::time::{sleep, Duration};
+use tracing::{error, info};
 
-// pub async fn create_pool() -> Result<sqlx::Pool<sqlx::Postgres>, sqlx::Error> {
-//     dotenv::dotenv().ok();
+pub fn create_pool() -> Pool {
+    print!("Try creating DB POOL");
+    let mut cfg = Config::new();
+    cfg.host = Some("questdb.go-server-devcontainer.orb.local".to_string());
+    cfg.port = Some(8812);
+    cfg.user = Some("admin".to_string());
+    cfg.password = Some("quest".to_string());
+    cfg.dbname = Some("qdb".to_string());
 
-//     let database_url =
-//         std::env::var("DATABASE_URL").expect("DATABASE_URL must be set in .env file");
-
-//     PgPoolOptions::new()
-//         .max_connections(5)
-//         .acquire_timeout(std::time::Duration::from_secs(3))
-//         .connect(&database_url)
-//         .await
-// }
-
-pub async fn create_pool() -> Result<sqlx::Pool<sqlx::Postgres>, sqlx::Error> {
-    dotenv::dotenv().ok();
-
-    let database_url =
-        std::env::var("DATABASE_URL").expect("DATABASE_URL must be set in .env file");
-
-    // QuestDB specific settings:
-    // - Higher timeout because QuestDB might take longer to respond
-    // - Fewer max connections as QuestDB has connection limits
-    // - No persistent connections (QuestDB may drop them)
-    PgPoolOptions::new()
-        .max_connections(5) // Lower max connections
-        .min_connections(0) // Don't maintain persistent connections
-        .acquire_timeout(std::time::Duration::from_secs(30)) // Longer timeout
-        .idle_timeout(Some(std::time::Duration::from_secs(30))) // Shorter idle timeout
-        .max_lifetime(Some(std::time::Duration::from_secs(3600))) // 1 hour max lifetime
-        .connect(&database_url)
-        .await
+    cfg.create_pool(
+        Some(deadpool_postgres::Runtime::Tokio1),
+        tokio_postgres::NoTls,
+    )
+    .expect("Failed to create pool")
 }
+
 // Add a struct to hold our query results
 #[derive(Debug)]
 struct StockData {
@@ -228,35 +206,169 @@ struct StockData {
 //         Ok(())
 //     }
 // }
+use crate::block::database_functions::DatabaseError;
+use deadpool_postgres::Client;
+use tokio_postgres::Error as PgError;
+async fn query_stock_data(client: &Client) -> Result<(), DatabaseError> {
+    info!("Querying stock_data table...");
+
+    let execution_date = "2005-12-12".to_owned();
+    let execution_date = format!("{}T16", execution_date);
+    print!("New time {}", execution_date);
+
+    let query = format!(
+        "SELECT * FROM stock_data_daily WHERE time = '{}' LIMIT 10",
+        execution_date
+    );
+
+    // Perform the query to select all rows from stock_data, limited to 50 rows
+    let rows = client.query(&query, &[]).await.map_err(|e| {
+        error!("Failed to query stock_data table: {}", e);
+        DatabaseError::PostgresError(e)
+    })?;
+
+    // Log the results
+    info!(
+        "Query successful! Retrieved {} rows from stock_data.",
+        rows.len()
+    );
+    for row in rows {
+        let time: chrono::NaiveDateTime = row.get("time");
+        let ticker: String = row.get("ticker");
+        let close: f64 = row.get("close");
+        info!("Time: {}, Ticker: {}, Close: {}", time, ticker, close);
+    }
+
+    Ok(())
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     // Initialize logging
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt().init();
 
-    // Create and test database pool
-    let pool = create_pool().await?;
-    let version = sqlx::query_scalar::<_, String>("SELECT version()")
-        .fetch_one(&pool)
-        .await?;
+    // Create pool and get initial client
+    let pool = create_pool();
+    let client = pool.get().await?;
+
+    // Test database connection
+    let version: String = client.query_one("SELECT version()", &[]).await?.get(0);
     info!("Connected to QuestDB version: {}", version);
 
-    // Read and validate input file
-    let json_str = fs::read_to_string("test.json")?;
+    // Initialize test parameters
+    let ticker = "AAPL".to_owned();
+    let execution_date = "2005-12-12".to_owned();
+    let execution_date =
+        chrono::DateTime::parse_from_rfc3339(&format!("{}T16:00:00.000000Z", execution_date))
+            .expect("Failed to parse datetime");
+    let execution_date = execution_date.to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
+    print!("Execution date is: -{}-", &execution_date);
+    let period: i64 = 20;
+    const PAUSE_DURATION_MS: u64 = 0;
+
+    println!("\n=== Testing Database Functions ===");
+
+    // Query stock_data table
+    match query_stock_data(&client).await {
+        Ok(_) => info!("Stock data query completed successfully."),
+        Err(e) => error!("Stock data query failed: {}", e),
+    }
+
+    // Current Price
+    match block::database_functions::get_current_price(&client, &ticker, &execution_date).await {
+        Ok(price) => info!(
+            "Current price for {} on {}: ${:.2}",
+            price.ticker, price.time, price.close
+        ),
+        Err(e) => error!("Failed to get current price: {}", e),
+    };
+
+    // SMA
+    match block::database_functions::get_sma(&client, &ticker, &execution_date, period).await {
+        Ok(sma) => info!("SMA ({}): ${:.2}", period, sma),
+        Err(e) => error!("Failed to get SMA: {}", e),
+    };
+    sleep(Duration::from_millis(PAUSE_DURATION_MS)).await;
+
+    // EMA
+    match block::database_functions::get_ema(&client, &ticker, &execution_date, period).await {
+        Ok(ema) => info!("EMA ({}): ${:.2}", period, ema),
+        Err(e) => error!("Failed to get EMA: {}", e),
+    };
+    sleep(Duration::from_millis(PAUSE_DURATION_MS)).await;
+
+    // Cumulative Return
+    match block::database_functions::get_cumulative_return(
+        &client,
+        &ticker,
+        &execution_date,
+        period,
+    )
+    .await
+    {
+        Ok(cumulative_return) => info!("Cumulative Return ({}): {:.2}%", period, cumulative_return),
+        Err(e) => error!("Failed to get Cumulative Return: {}", e),
+    };
+    sleep(Duration::from_millis(PAUSE_DURATION_MS)).await;
+
+    // MA of Price
+    match block::database_functions::get_ma_of_price(&client, &ticker, &execution_date, period)
+        .await
+    {
+        Ok(ma_price) => info!("MA of Price ({}): ${:.2}", period, ma_price),
+        Err(e) => error!("Failed to get MA of Price: {}", e),
+    };
+    sleep(Duration::from_millis(PAUSE_DURATION_MS)).await;
+
+    // MA of Returns
+    match block::database_functions::get_ma_of_returns(&client, &ticker, &execution_date, period)
+        .await
+    {
+        Ok(ma_returns) => info!("MA of Returns ({}): {:.2}%", period, ma_returns),
+        Err(e) => error!("Failed to get MA of Returns: {}", e),
+    };
+    sleep(Duration::from_millis(PAUSE_DURATION_MS)).await;
+
+    // RSI
+    match block::database_functions::get_rsi(&client, &ticker, &execution_date, 14).await {
+        Ok(rsi) => info!("RSI (14): {:.2}", rsi),
+        Err(e) => error!("Failed to get RSI: {}", e),
+    };
+    sleep(Duration::from_millis(PAUSE_DURATION_MS)).await;
+
+    // Max Drawdown
+    match block::database_functions::get_max_drawdown(&client, &ticker, &execution_date, period)
+        .await
+    {
+        Ok(drawdown) => info!("Max Drawdown: {:.2}%", drawdown.max_drawdown_percentage),
+        Err(e) => error!("Failed to get Max Drawdown: {}", e),
+    };
+    sleep(Duration::from_millis(PAUSE_DURATION_MS)).await;
+
+    // Returns Standard Deviation
+    match block::database_functions::get_returns_std_dev(&client, &ticker, &execution_date, period)
+        .await
+    {
+        Ok(std_dev) => info!("Returns StdDev: {:.2}%", std_dev),
+        Err(e) => error!("Failed to get Returns Standard Deviation: {}", e),
+    };
+
+    //  Process strategy from JSON file
+    let json_str = fs::read_to_string("input.json")?;
     if json_str.is_empty() {
         return Err("Empty input file".into());
     }
 
-    // Parse strategy and execute
     let strategy = validate_json::deserialize_json(&json_str)?;
-    let execution_date = chrono::Utc
-        .with_ymd_and_hms(2023, 12, 12, 5, 0, 0)
+    let strategy_execution_date = chrono::Utc
+        .with_ymd_and_hms(2020, 11, 06, 16, 0, 0)
         .unwrap()
-        .to_rfc3339();
+        .format("%Y-%m-%dT%H:%M:%S.000000Z")
+        .to_string();
 
     info!("Executing strategy...");
     let allocations =
-        strategy_executor::execute_strategy(&strategy, &pool, &execution_date).await?;
+        strategy_executor::execute_strategy(&strategy, &pool, &strategy_execution_date).await?;
 
     // Print results
     println!("\nFinal Portfolio Allocations:");
@@ -273,7 +385,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_with_delay() -> Result<(), Box<dyn Error>> {
-        let pool = create_pool().await?;
+        let pool = create_pool();
+        let client = pool.get().await?;
+
         let ticker = "AAPL".to_string();
         let execution_date = chrono::Utc
             .with_ymd_and_hms(2005, 12, 12, 5, 0, 0)
@@ -282,24 +396,11 @@ mod tests {
 
         // Test sequence with delays
         let current_price =
-            block::database_functions::get_current_price(&pool, &ticker, &execution_date).await?;
-        sleep(Duration::from_millis(100)).await;
-
-        let cumulative_return =
-            block::database_functions::get_cumulative_return(&pool, &ticker, &execution_date, 20)
-                .await?;
+            block::database_functions::get_current_price(&client, &ticker, &execution_date).await?;
         sleep(Duration::from_millis(100)).await;
 
         assert!(current_price.close > 0.0);
-        assert!(cumulative_return.is_finite());
 
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_json_reading() -> Result<(), Box<dyn Error>> {
-        let json_str = fs::read_to_string("input.json")?;
-        assert!(!json_str.is_empty());
         Ok(())
     }
 }

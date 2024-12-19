@@ -1,0 +1,189 @@
+2024-12-18T19:23:45.065 | Info | Starting market data fetcher with maximum historical data...
+2024-12-18T19:23:46.319 | Debug | SSL connect: en.wikipedia.org:443...
+2024-12-18T19:23:46.322 | Debug | TCP connect: en.wikipedia.org:443...
+2024-12-18T19:23:46.471 | Debug | GET /wiki/List_of_S%26P_500_companies HTTP/1.1
+2024-12-18T19:23:46.471 | Debug | client startwrite
+2024-12-18T19:23:46.479 | Debug | 👁  Start write:⏸    0s en.wikipedia.org:443:50290 RawFD(25)
+2024-12-18T19:23:46.523 | Debug | HTTP.Messages.Request:
+"""
+GET /wiki/List_of_S%26P_500_companies HTTP/1.1
+Host: en.wikipedia.org
+Accept: */*
+User-Agent: HTTP.jl/1.11.2
+Content-Length: 0
+Accept-Encoding: gzip
+
+"""
+2024-12-18T19:23:46.524 | Debug | client closewrite
+2024-12-18T19:23:46.524 | Debug | 🗣  Write done: 🔗    0s en.wikipedia.org:443:50290 RawFD(25)
+2024-12-18T19:23:46.524 | Debug | client startread
+2024-12-18T19:23:46.524 | Debug | 👁  Start read: 🔗    0s en.wikipedia.org:443:50290 RawFD(25)
+2024-12-18T19:23:46.728 | Debug | called process()
+2024-12-18T19:23:46.750 | Debug | called process()
+2024-12-18T19:23:46.770 | Debug | called process()
+2024-12-18T19:23:46.770 | Debug | called process()
+2024-12-18T19:23:46.770 | Debug | called process()
+2024-12-18T19:23:46.770 | Debug | called process()
+2024-12-18T19:23:46.776 | Debug | called process()
+2024-12-18T19:23:46.776 | Debug | called process()
+2024-12-18T19:23:46.776 | Debug | called process()
+2024-12-18T19:23:46.776 | Debug | called process()
+2024-12-18T19:23:46.777 | Debug | called process()
+2024-12-18T19:23:46.777 | Debug | called process()
+2024-12-18T19:23:46.777 | Debug | called process()
+2024-12-18T19:23:46.777 | Debug | called process()
+2024-12-18T19:23:46.777 | Debug | called process()
+2024-12-18T19:23:46.777 | Debug | called process()
+2024-12-18T19:23:46.777 | Debug | called process()
+2024-12-18T19:23:46.777 | Debug | called process()
+2024-12-18T19:23:46.778 | Debug | called process()
+2024-12-18T19:23:46.778 | Debug | called process()
+2024-12-18T19:23:46.778 | Debug | called process()
+2024-12-18T19:23:46.778 | Debug | called process()
+2024-12-18T19:23:46.778 | Debug | called process()
+2024-12-18T19:23:46.778 | Debug | called process()
+2024-12-18T19:23:46.778 | Debug | called process()
+2024-12-18T19:23:46.778 | Debug | called process()
+2024-12-18T19:23:46.778 | Debug | called process()
+2024-12-18T19:23:46.779 | Debug | called process()
+2024-12-18T19:23:46.779 | Debug | called process()
+2024-12-18T19:23:46.779 | Debug | called process()
+2024-12-18T19:23:46.779 | Debug | called process()
+2024-12-18T19:23:46.779 | Debug | called process()
+2024-12-18T19:23:46.779 | Debug | called process()
+2024-12-18T19:23:46.779 | Debug | called process()
+2024-12-18T19:23:46.779 | Debug | called process()
+2024-12-18T19:23:46.779 | Debug | called process()
+2024-12-18T19:23:46.780 | Debug | called process()
+2024-12-18T19:23:46.780 | Debug | called process()
+2024-12-18T19:23:46.780 | Debug | called process()
+2024-12-18T19:23:46.780 | Debug | called process()
+2024-12-18T19:23:46.780 | Debug | called process()
+2024-12-18T19:23:46.780 | Debug | called process()
+2024-12-18T19:23:46.780 | Debug | called process()
+2024-12-18T19:23:46.780 | Debug | called process()
+2024-12-18T19:23:46.780 | Debug | called process()
+2024-12-18T19:23:46.780 | Debug | called process()
+2024-12-18T19:23:46.780 | Debug | called process()
+2024-12-18T19:23:46.780 | Debug | called process()
+2024-12-18T19:23:46.781 | Debug | client closeread
+2024-12-18T19:23:46.781 | Debug | ✉️  Read done: ⏸    0s en.wikipedia.org:443:50290 RawFD(25)
+2024-12-18T19:23:46.786 | Debug | HTTP/1.1 200 OK <= (GET /wiki/List_of_S%26P_500_companies HTTP/1.1)
+2024-12-18T19:23:46.793 | Debug | HTTP.Messages.Response:
+"""
+HTTP/1.1 200 OK
+date: Wed, 18 Dec 2024 19:20:58 GMT
+vary: Accept-Encoding,Cookie,Authorization
+server: ATS/9.2.6
+x-content-type-options: nosniff
+content-language: en
+last-modified: Wed, 11 Dec 2024 18:51:34 GMT
+content-type: text/html; charset=UTF-8
+content-encoding: gzip
+age: 168
+x-cache: cp5020 hit, cp5020 hit/1
+x-cache-status: hit-front
+server-timing: cache;desc="hit-front", host;desc="cp5020"
+strict-transport-security: max-age=106384710; includeSubDomains; preload
+report-to: { "group": "wm_nel", "max_age": 604800, "endpoints": [{ "url": "https://intake-logging.wikimedia.org/v1/events?stream=w3c.reportingapi.network_error&schema_uri=/w3c/reportingapi/network_error/1.0.0" }] }
+nel: { "report_to": "wm_nel", "max_age": 604800, "failure_fraction": 0.05, "success_fraction": 0.0}
+set-cookie: ******
+x-client-ip: 14.179.71.82
+cache-control: private, s-maxage=0, max-age=0, must-revalidate, no-transform
+set-cookie: ******
+accept-ranges: bytes
+content-length: 100139
+
+<!DOCTYPE html>
+<html class="client-nojs vector-feature-language-in-header-enabled vector-feature-language-in-main-page-header-disabled vector-feature-sticky-header-disabled vector-feature-page-tools-pinned-disabled vector-feature-toc-pinned-clientpref-1 vector-feature-main-menu-pinned-disabled vector-feature-limited-width-clientpref-1 vector-feature-limited-width-content-enabled vector-feature-custom-font-size-clientpref-1 vector-feature-appearance-pinned-clientpref-1 vector-feature-night-mode-enabled skin-theme-clientpref-day vector-toc-available" lang="en" dir="ltr">
+<head>
+<meta charset="UTF-8">
+<title>List of S&amp;P 500 companies - Wikipedia</title>
+<script>(function(){var className="client-js vector-feature-language-in-header-enabled vector-feature-language-in-main-page-header-disabled vector-feature-sticky-header-disabled vector-feature-page-tools-pinned-disabled vector-feature-toc-pinned-clientpref-1 vector-feature-main-menu-pinned-disabled vector-feature-limited-width-clientp
+⋮
+734498-byte body
+"""
+2024-12-18T19:23:47.452 | Info | Found 26 symbols
+2024-12-18T19:23:47.516 | Info | Processing ADT
+2024-12-18T19:23:47.517 | Info | Fetching data for ADT (attempt 1)
+2024-12-18T19:23:48.207 | Debug | SSL connect: query2.finance.yahoo.com:443...
+2024-12-18T19:23:48.208 | Debug | TCP connect: query2.finance.yahoo.com:443...
+2024-12-18T19:23:48.526 | Debug | GET /v8/finance/chart/ADT?events=&interval=1d&period2=1734549827&period1=0&includePrePost=false HTTP/1.1
+2024-12-18T19:23:48.527 | Debug | client startwrite
+2024-12-18T19:23:48.527 | Debug | 👁  Start write:⏸    0s query2.finance.yahoo.com:443:51498 RawFD(26)
+2024-12-18T19:23:48.527 | Debug | HTTP.Messages.Request:
+"""
+GET /v8/finance/chart/ADT?events=&interval=1d&period2=1734549827&period1=0&includePrePost=false HTTP/1.1
+Host: query2.finance.yahoo.com
+Accept: */*
+User-Agent: HTTP.jl/1.11.2
+Content-Length: 0
+Accept-Encoding: gzip
+
+"""
+2024-12-18T19:23:48.527 | Debug | client closewrite
+2024-12-18T19:23:48.527 | Debug | 🗣  Write done: 🔗    0s query2.finance.yahoo.com:443:51498 RawFD(26)
+2024-12-18T19:23:48.527 | Debug | client startread
+2024-12-18T19:23:48.527 | Debug | 👁  Start read: 🔗    0s query2.finance.yahoo.com:443:51498 RawFD(26)
+2024-12-18T19:23:48.821 | Debug | called process()
+2024-12-18T19:23:48.823 | Debug | called process()
+2024-12-18T19:23:48.823 | Debug | called process()
+2024-12-18T19:23:48.823 | Debug | called process()
+2024-12-18T19:23:48.823 | Debug | called process()
+2024-12-18T19:23:48.824 | Debug | called process()
+2024-12-18T19:23:48.824 | Debug | called process()
+2024-12-18T19:23:48.825 | Debug | called process()
+2024-12-18T19:23:48.825 | Debug | called process()
+2024-12-18T19:23:48.825 | Debug | called process()
+2024-12-18T19:23:48.825 | Debug | called process()
+2024-12-18T19:23:48.834 | Debug | called process()
+2024-12-18T19:23:48.835 | Debug | called process()
+2024-12-18T19:23:48.836 | Debug | client closeread
+2024-12-18T19:23:48.836 | Debug | ✉️  Read done: ⏸    0s query2.finance.yahoo.com:443:51498 RawFD(26)
+2024-12-18T19:23:48.836 | Debug | HTTP/1.1 200 OK <= (GET /v8/finance/chart/ADT?events=&interval=1d&period2=1734549827&period1=0&includePrePost=false HTTP/1.1)
+2024-12-18T19:23:48.837 | Debug | HTTP.Messages.Response:
+"""
+HTTP/1.1 200 OK
+content-type: application/json;charset=utf-8
+y-rid: 47s0f6tjm68a4
+cache-control: public, max-age=10, stale-while-revalidate=20
+vary: Origin,Accept-Encoding
+content-encoding: gzip
+x-envoy-upstream-service-time: 23
+date: Wed, 18 Dec 2024 19:23:48 GMT
+server: ATS
+x-envoy-decorator-operation: finance-chart-api--mtls-production-sg3.finance-k8s.svc.yahoo.local:4080/*
+Age: 0
+Strict-Transport-Security: max-age=31536000
+Referrer-Policy: no-referrer-when-downgrade
+X-Content-Type-Options: nosniff
+X-XSS-Protection: 1; mode=block
+X-Frame-Options: SAMEORIGIN
+Transfer-Encoding: chunked
+Connection: keep-alive
+
+{"chart":{"result":[{"meta":{"currency":"USD","symbol":"ADT","exchangeName":"NYQ","fullExchangeName":"NYSE","instrumentType":"EQUITY","firstTradeDate":1516372200,"regularMarketTime":1734549825,"hasPrePostMarketData":true,"gmtoffset":-18000,"timezone":"EST","exchangeTimezoneName":"America/New_York","regularMarketPrice":7.025,"fiftyTwoWeekHigh":8.25,"fiftyTwoWeekLow":6.02,"regularMarketDayHigh":7.16,"regularMarketDayLow":7.02,"regularMarketVolume":2388239,"longName":"ADT Inc.","shortName":"ADT Inc.","chartPreviousClose":12.39,"priceHint":2,"currentTradingPeriod":{"pre":{"timezone":"EST","start":1734512400,"end":1734532200,"gmtoffset":-18000},"regular":{"timezone":"EST","start":1734532200,"end":1734555600,"gmtoffset":-18000},"post":{"timezone":"EST","start":1734555600,"end":1734570000,"gmtoffset":-18000}},"dataGranularity":"1d","range":"","validRanges":["1d","5d","1mo","3mo","6mo","1y","2y","5y","10y","ytd","max"]},"timestamp":[1516372200,1516631400,1516717800,1516804200,1516890600,151697
+⋮
+185784-byte body
+"""
+2024-12-18T19:23:49.425 | Info | Raw data keys for ADT: ["ticker", "timestamp", "open", "high", "low", "close", "adjclose", "vol"]
+2024-12-18T19:23:49.512 | Error | Error converting OrderedDict to DataFrame
+2024-12-18T19:23:49.616 | Error | Attempt 1 failed for ADT
+2024-12-18T19:23:51.640 | Info | Fetching data for ADT (attempt 2)
+2024-12-18T19:23:51.640 | Debug | GET /v8/finance/chart/ADT?events=&interval=1d&period2=1734549831&period1=0&includePrePost=false HTTP/1.1
+2024-12-18T19:23:51.641 | Debug | client startwrite
+2024-12-18T19:23:51.641 | Debug | 👁  Start write:🔁    3s query2.finance.yahoo.com:443:51498 RawFD(26)
+2024-12-18T19:23:51.641 | Debug | HTTP.Messages.Request:
+"""
+GET /v8/finance/chart/ADT?events=&interval=1d&period2=1734549831&period1=0&includePrePost=false HTTP/1.1
+Host: query2.finance.yahoo.com
+Accept: */*
+User-Agent: HTTP.jl/1.11.2
+Content-Length: 0
+Accept-Encoding: gzip
+
+"""
+2024-12-18T19:23:51.641 | Debug | client closewrite
+2024-12-18T19:23:51.641 | Debug | 🗣  Write done: 🔁    3s query2.finance.yahoo.com:443:51498 RawFD(26)
+2024-12-18T19:23:51.642 | Debug | client startread
+2024-12-18T19:23:51.642 | Debug | 👁  Start read: 🔁    0s query2.finance.yahoo.com:443:51498 RawFD(26)

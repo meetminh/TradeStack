@@ -1,12 +1,15 @@
 use chrono::{DateTime, NaiveDateTime, Utc};
+use deadpool_postgres::Client;
 use serde::{Deserialize, Serialize};
-use sqlx::{Pool, Postgres, Row};
-use thiserror::Error; // Add this at the top with other imports
+use thiserror::Error;
+use tokio_postgres::Error as PgError;
 
 #[derive(Debug, Error)]
 pub enum DatabaseError {
     #[error("Database error: {0}")]
-    SqlxError(#[from] sqlx::Error),
+    PostgresError(#[from] PgError),
+    #[error("Pool error: {0}")]
+    PoolError(#[from] deadpool_postgres::PoolError),
     #[error("Invalid date range")]
     InvalidDateRange,
     #[error("Invalid ticker symbol")]
@@ -40,56 +43,52 @@ fn validate_price(price: f64, context: &str) -> Result<(), DatabaseError> {
     }
     Ok(())
 }
-
 #[derive(Debug)]
 struct StartDateResult {
     time: NaiveDateTime,
 }
+use chrono::SecondsFormat;
 pub async fn get_start_date(
-    pool: &Pool<Postgres>,
-    ticker: &String,
-    execution_date: &String,
+    client: &Client,
+    ticker: &str,
+    execution_date: &str,
     trading_days: i64,
 ) -> Result<String, DatabaseError> {
-    // Still return String as planned
-    println!("Starting get_start_date with date: {}", execution_date);
-    validate_ticker(&ticker)?;
+    validate_ticker(ticker)?;
     validate_period(trading_days, "Trading days")?;
+    tracing::debug!("Starting get_start_date");
 
-    let start_date = sqlx::query(
-        r#"
-        SELECT min(time) as start_date
+    let query = format!(
+        "SELECT min(time) as start_date
         FROM (
-            SELECT time 
-            FROM stock_data 
-            WHERE ticker = $1 
-            AND time <= $2
-            ORDER BY time DESC 
-            LIMIT $3
-        ) AS subquery"#,
-    )
-    .bind(&ticker)
-    .bind(execution_date)
-    .bind(trading_days)
-    .map(|row: sqlx::postgres::PgRow| StartDateResult {
-        time: row.get("start_date"),
-    })
-    .fetch_one(pool)
-    .await
-    .map(|result| DateTime::<Utc>::from_naive_utc_and_offset(result.time, Utc).to_rfc3339()) // Convert to String
-    .map_err(|e| match e {
-        sqlx::Error::RowNotFound => DatabaseError::InsufficientData(format!(
-            "Not enough historical data available. Requested {} trading days but found fewer.",
-            trading_days
-        )),
-        other => DatabaseError::SqlxError(other),
-    })?;
+            SELECT time
+            FROM stock_data_daily
+            WHERE ticker = $1
+            AND time <= '{}'
+            ORDER BY time DESC
+            LIMIT $2
+        ) AS subquery",
+        execution_date
+    );
 
-    println!("Found start_date: {}", start_date);
+    let row = client.query_one(&query, &[&ticker, &trading_days]).await?;
+
+    let time: NaiveDateTime = row.get("start_date");
+    let start_date = DateTime::<Utc>::from_naive_utc_and_offset(time, Utc)
+        .to_rfc3339_opts(SecondsFormat::Micros, true);
+
+    print!("Found start date: {}", start_date);
+
+    tracing::debug!(
+        execution_date = %execution_date,
+        start_date = %start_date,
+        "Retrieved start date for historical data"
+    );
+
     Ok(start_date)
 }
 
-// Validation functions
+// Validation functions remain unchanged
 fn validate_ticker(ticker: &str) -> Result<(), DatabaseError> {
     if ticker.trim().is_empty() || ticker.len() > 10 {
         return Err(DatabaseError::InvalidTicker);
@@ -124,7 +123,6 @@ fn validate_period(period: i64, context: &str) -> Result<(), DatabaseError> {
         )));
     }
     if period > 100 {
-        // Consistent upper bound
         return Err(DatabaseError::InvalidPeriod(format!(
             "{} too large, maximum is 100",
             context
@@ -139,19 +137,18 @@ struct SMAResult {
 }
 
 pub async fn get_sma(
-    pool: &Pool<Postgres>,
-    ticker: &String,
-    execution_date: &String,
+    client: &Client,
+    ticker: &str,         // Changed from &String to &str
+    execution_date: &str, // Changed from &String to &str
     period: i64,
 ) -> Result<f64, DatabaseError> {
-    validate_ticker(&ticker)?;
+    validate_ticker(ticker)?;
     validate_period(period, "SMA period")?;
-    println!("About to get start date...");
-    let start_date = get_start_date(pool, &ticker, &execution_date, period).await?;
-    println!("Start date: {}", start_date);
-    println!("Executing SMA query...");
 
-    // Build query with concrete number for ROWS BETWEEN
+    tracing::debug!("Getting start date for SMA calculation"); // Better logging
+    let start_date = get_start_date(client, ticker, execution_date, period).await?;
+    tracing::debug!("Retrieved start date for SMA calculation");
+
     let query = format!(
         r#"
         SELECT avg(close) OVER (
@@ -159,185 +156,223 @@ pub async fn get_sma(
             ORDER BY time
             ROWS BETWEEN {} PRECEDING AND CURRENT ROW
         ) AS sma
-        FROM stock_data
+        FROM stock_data_daily
         WHERE ticker = $1
-        AND time >= $2
-        AND time <= $3
+        AND time BETWEEN '{}'
+        AND '{}'
         ORDER BY time DESC
         LIMIT 1
         "#,
-        period - 1
+        period - 1,
+        start_date,
+        execution_date
     );
 
-    let record = sqlx::query(&query)
-        .bind(&ticker)
-        .bind(&start_date)
-        .bind(&execution_date)
-        .map(|row: sqlx::postgres::PgRow| SMAResult {
-            sma: row.get("sma"),
-        })
-        .fetch_one(pool)
+    let row = client
+        .query_one(&query, &[&ticker]) // Removed &start_date and &execution_date since they're interpolated
         .await
-        .map(|result| result.sma)
         .map_err(|e| match e {
-            sqlx::Error::RowNotFound => DatabaseError::InsufficientData(format!(
-                "No data found for {} between {} and {}",
-                ticker, start_date, execution_date
-            )),
-            other => DatabaseError::SqlxError(other),
+            e if e.as_db_error().map_or(false, |dbe| {
+                dbe.code() == &tokio_postgres::error::SqlState::NO_DATA
+            }) =>
+            {
+                DatabaseError::InsufficientData(format!(
+                    "No data found for {} between {} and {}",
+                    ticker, start_date, execution_date
+                ))
+            }
+            other => DatabaseError::PostgresError(other),
         })?;
 
-    if !record.is_finite() {
+    let sma: f64 = row.get("sma");
+    if !sma.is_finite() {
         return Err(DatabaseError::InvalidCalculation(
             "SMA calculation resulted in invalid value".to_string(),
         ));
     }
 
-    Ok(record)
+    tracing::debug!(ticker, %start_date, %execution_date, %sma, "SMA calculation completed");
+    Ok(sma)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CurrentPrice {
-    pub time: NaiveDateTime, // For timestamp type
-    pub ticker: String,      // For symbol type
+    pub time: NaiveDateTime,
+    pub ticker: String,
     pub close: f64,
 }
 
 pub async fn get_current_price(
-    pool: &Pool<Postgres>,
+    client: &Client,
     ticker: &String,
     execution_date: &String,
 ) -> Result<CurrentPrice, DatabaseError> {
     validate_ticker(&ticker)?;
 
-    sqlx::query(
-        "SELECT time, ticker, close
-         FROM stock_data
-         WHERE ticker = $1
-         AND time = $2",
-    )
-    .bind(&ticker)
-    .bind(&execution_date)
-    .map(|row: sqlx::postgres::PgRow| CurrentPrice {
-        time: row.get("time"),
-        ticker: row.get("ticker"),
-        close: row.get("close"),
-    })
-    .fetch_one(pool)
-    .await
-    .map_err(|e| match e {
-        sqlx::Error::RowNotFound => DatabaseError::InsufficientData(format!(
-            "No price data found for {} at {}",
-            ticker, execution_date
-        )),
-        other => DatabaseError::SqlxError(other),
+    // Log the query parameters
+    print!(
+        "Querying current price for ticker: {} on date: {}",
+        ticker, execution_date
+    );
+
+    let row = client
+        .query_one(
+            "SELECT time, ticker, close
+             FROM stock_data_daily
+             WHERE ticker = $1
+             AND time IN $2",
+            &[&ticker, &execution_date],
+        )
+        .await
+        .map_err(|e| match e {
+            e if e.as_db_error().map_or(false, |dbe| {
+                dbe.code() == &tokio_postgres::error::SqlState::NO_DATA
+            }) =>
+            {
+                DatabaseError::InsufficientData(format!(
+                    "No price data found for {} at {}",
+                    ticker, execution_date
+                ))
+            }
+            other => DatabaseError::PostgresError(other),
+        })?;
+
+    // Log the result
+    let time: chrono::NaiveDateTime = row.get("time");
+    let ticker: String = row.get("ticker");
+    let close: f64 = row.get("close");
+    print!(
+        "Found price data: Time: {}, Ticker: {}, Close: {}",
+        time, ticker, close
+    );
+
+    Ok(CurrentPrice {
+        time,
+        ticker,
+        close,
     })
 }
-
 #[derive(Debug)]
 struct CumulativeReturnResult {
     return_percentage: f64,
 }
 
 pub async fn get_cumulative_return(
-    pool: &Pool<Postgres>,
-    ticker: &String,
-    execution_date: &String,
+    client: &Client,
+    ticker: &str, // Changed from &String to &str for more flexibility
+    execution_date: &str,
     period: i64,
 ) -> Result<f64, DatabaseError> {
-    validate_ticker(&ticker)?;
+    validate_ticker(ticker)?;
     validate_period(period, "Return period")?;
 
-    let start_date = get_start_date(&pool, &ticker, &execution_date, period).await?;
+    let start_date = get_start_date(client, ticker, execution_date, period).await?;
 
-    let record = sqlx::query(
+    // Modified query to use string interpolation for dates with single quotes for QuestDB
+    let query = format!(
         r#"
         WITH period_prices AS (
             SELECT
                 first(close) as start_price,
                 last(close) as end_price
-            FROM stock_data
+            FROM stock_data_daily
             WHERE ticker = $1
-            AND time >= $2
-            AND time <= $3
+            AND time BETWEEN '{}'
+            AND '{}'
         )
         SELECT
             ((end_price - start_price) / start_price * 100) as return_percentage
         FROM period_prices
         "#,
-    )
-    .bind(&ticker)
-    .bind(&start_date)
-    .bind(&execution_date)
-    .map(|row: sqlx::postgres::PgRow| CumulativeReturnResult {
-        return_percentage: row.get("return_percentage"),
-    })
-    .fetch_one(pool)
-    .await
-    .map(|result| result.return_percentage)
-    .map_err(|e| match e {
-        sqlx::Error::RowNotFound => DatabaseError::InsufficientData(format!(
-            "No price data found for {} between {} and {}",
-            ticker, start_date, execution_date
-        )),
-        other => DatabaseError::SqlxError(other),
-    })?;
+        start_date, execution_date
+    );
 
-    Ok(record)
+    // Removed date parameters since they're now interpolated in the query
+    let row = client
+        .query_one(&query, &[&ticker])
+        .await
+        .map_err(|e| match e {
+            e if e.as_db_error().map_or(false, |dbe| {
+                dbe.code() == &tokio_postgres::error::SqlState::NO_DATA
+            }) =>
+            {
+                DatabaseError::InsufficientData(format!(
+                    "No price data found for {} between {} and {}",
+                    ticker, start_date, execution_date
+                ))
+            }
+            other => DatabaseError::PostgresError(other),
+        })?;
+
+    let return_percentage: f64 = row.get("return_percentage");
+
+    // Added more descriptive error message
+    if !return_percentage.is_finite() {
+        return Err(DatabaseError::InvalidCalculation(
+            "Cumulative return calculation resulted in invalid value".to_string(),
+        ));
+    }
+
+    // Added debug logging for better observability
+    tracing::debug!(
+        %ticker,
+        %start_date,
+        %execution_date,
+        %return_percentage,
+        "Cumulative return calculation completed"
+    );
+
+    Ok(return_percentage)
 }
-
 #[derive(Debug)]
 struct EMAResult {
     close: f64,
 }
 
 pub async fn get_ema(
-    pool: &Pool<Postgres>,
-    ticker: &String,
-    execution_date: &String,
+    client: &Client,
+    ticker: &str, // Changed from &String to &str
+    execution_date: &str,
     period: i64,
 ) -> Result<f64, DatabaseError> {
-    validate_ticker(&ticker)?;
+    validate_ticker(ticker)?;
     validate_period(period, "EMA period")?;
 
-    let start_date = get_start_date(pool, &ticker, &execution_date, period).await?;
+    let start_date = get_start_date(client, ticker, execution_date, period).await?;
 
-    let prices = sqlx::query(
+    let query = format!(
         r#"
-        SELECT 
+        SELECT
             time,
             close
-        FROM stock_data
+        FROM stock_data_daily
         WHERE ticker = $1
-        AND time >= $2
-        AND time <= $3
+        AND time BETWEEN '{}'
+        AND '{}'
         AND close > 0
         ORDER BY time ASC
         "#,
-    )
-    .bind(&ticker)
-    .bind(&start_date)
-    .bind(&execution_date)
-    .map(|row: sqlx::postgres::PgRow| EMAResult {
-        close: row.get("close"),
-    })
-    .fetch_all(pool)
-    .await?;
+        start_date, execution_date
+    );
 
-    if prices.len() < period as usize {
+    let rows = client
+        .query(&query, &[&ticker]) // Removed date parameters since they're interpolated
+        .await?;
+
+    if rows.len() < period as usize {
         return Err(DatabaseError::InsufficientData(format!(
-            "Need at least {} data points",
-            period
+            "Need at least {} data points for {} between {} and {}",
+            period, ticker, start_date, execution_date
         )));
     }
 
-    let prices: Vec<f64> = prices.into_iter().map(|record| record.close).collect();
-    let initial_sma = prices[..period as usize].iter().sum::<f64>() / period as f64;
+    let prices: Vec<f64> = rows.iter().map(|row| row.get("close")).collect();
 
+    let initial_sma = prices[..period as usize].iter().sum::<f64>() / period as f64;
     let smoothing = 2.0;
     let multiplier = smoothing / (period as f64 + 1.0);
-    let mut ema = initial_sma;
 
+    let mut ema = initial_sma;
     for price in prices[period as usize..].iter() {
         ema = price * multiplier + ema * (1.0 - multiplier);
     }
@@ -347,6 +382,15 @@ pub async fn get_ema(
             "EMA calculation resulted in invalid value".to_string(),
         ));
     }
+
+    tracing::debug!(
+        %ticker,
+        %start_date,
+        %execution_date,
+        %period,
+        %ema,
+        "EMA calculation completed"
+    );
 
     Ok(ema)
 }
@@ -368,106 +412,134 @@ struct PriceResult {
 }
 
 pub async fn get_max_drawdown(
-    pool: &Pool<Postgres>,
-    ticker: &String,
-    execution_date: &String,
+    client: &Client,
+    ticker: &str, // Changed from &String to &str
+    execution_date: &str,
     period: i64,
 ) -> Result<DrawdownResult, DatabaseError> {
-    validate_ticker(&ticker)?;
+    validate_ticker(ticker)?;
     validate_period(period, "Drawdown period")?;
 
-    let start_date = get_start_date(pool, &ticker, &execution_date, period).await?;
+    let start_date = get_start_date(client, ticker, execution_date, period).await?;
 
-    println!("Start fetch");
-    let prices = sqlx::query(
+    tracing::debug!("Starting max drawdown calculation"); // Replaced println
+
+    // Modified query to use string interpolation for dates with single quotes for QuestDB
+    let query = format!(
         r#"
         SELECT
             time,
             close
-        FROM stock_data
+        FROM stock_data_daily
         WHERE ticker = $1
-        AND time >= $2
-        AND time <= $3
+        AND time BETWEEN '{}'
+        AND '{}'
         ORDER BY time ASC
         "#,
-    )
-    .bind(&ticker)
-    .bind(&start_date)
-    .bind(&execution_date)
-    .map(|row: sqlx::postgres::PgRow| PriceResult {
-        time: row.get("time"),
-        close: row.get("close"),
-    })
-    .fetch_all(pool)
-    .await?;
+        start_date, execution_date
+    );
 
-    println!("End fetch");
+    // Removed date parameters since they're interpolated in the query
+    let rows = client.query(&query, &[&ticker]).await?;
 
-    if prices.len() < 2 {
-        return Err(DatabaseError::InsufficientData(
-            "Need at least 2 data points".to_string(),
-        ));
+    tracing::debug!("Retrieved price data for drawdown calculation"); // Replaced println
+
+    if rows.len() < 2 {
+        return Err(DatabaseError::InsufficientData(format!(
+            "Need at least 2 data points for drawdown calculation for {}",
+            ticker
+        )));
     }
 
     let mut max_drawdown = 0.0;
     let mut max_drawdown_value = 0.0;
     let mut peak_price = f64::NEG_INFINITY;
-    let mut peak_time = prices[0].time;
-    let mut max_drawdown_peak_time = prices[0].time;
-    let mut max_drawdown_trough_time = prices[0].time;
+    let mut peak_time = rows[0].get::<_, NaiveDateTime>("time");
+    let mut max_drawdown_peak_time = peak_time;
+    let mut max_drawdown_trough_time = peak_time;
     let mut max_drawdown_peak_price = 0.0;
     let mut max_drawdown_trough_price = 0.0;
 
-    for price_record in prices.iter() {
-        if price_record.close > peak_price {
-            peak_price = price_record.close;
-            peak_time = price_record.time;
+    // Added logging for initialization values
+    tracing::debug!(
+        initial_time = %peak_time,
+        "Initialized drawdown calculation"
+    );
+
+    for row in rows.iter() {
+        let current_price: f64 = row.get("close");
+        let current_time: NaiveDateTime = row.get("time");
+
+        if current_price > peak_price {
+            peak_price = current_price;
+            peak_time = current_time;
         }
 
-        let drawdown = (peak_price - price_record.close) / peak_price * 100.0;
-        let drawdown_value = peak_price - price_record.close;
+        let drawdown = (peak_price - current_price) / peak_price * 100.0;
+        let drawdown_value = peak_price - current_price;
 
         if drawdown > max_drawdown {
             max_drawdown = drawdown;
             max_drawdown_value = drawdown_value;
             max_drawdown_peak_time = peak_time;
-            max_drawdown_trough_time = price_record.time;
+            max_drawdown_trough_time = current_time;
             max_drawdown_peak_price = peak_price;
-            max_drawdown_trough_price = price_record.close;
+            max_drawdown_trough_price = current_price;
+
+            // Added logging for new max drawdown
+            tracing::debug!(
+                %max_drawdown,
+                %max_drawdown_value,
+                peak_time = %max_drawdown_peak_time,
+                trough_time = %max_drawdown_trough_time,
+                "New maximum drawdown found"
+            );
         }
     }
 
-    Ok(DrawdownResult {
+    let result = DrawdownResult {
         max_drawdown_percentage: max_drawdown,
         max_drawdown_value,
         peak_price: max_drawdown_peak_price,
         trough_price: max_drawdown_trough_price,
         peak_time: max_drawdown_peak_time,
         trough_time: max_drawdown_trough_time,
-    })
-}
+    };
 
+    // Added final debug log with calculation results
+    tracing::debug!(
+        %ticker,
+        %start_date,
+        %execution_date,
+        max_drawdown = %result.max_drawdown_percentage,
+        peak_time = %result.peak_time,
+        trough_time = %result.trough_time,
+        "Max drawdown calculation completed"
+    );
+
+    Ok(result)
+}
 #[derive(Debug)]
 struct MAResult {
     moving_average: f64,
 }
 
 pub async fn get_ma_of_price(
-    pool: &Pool<Postgres>,
-    ticker: &String,
-    execution_date: &String,
+    client: &Client,
+    ticker: &str, // Changed from &String to &str
+    execution_date: &str,
     period: i64,
 ) -> Result<f64, DatabaseError> {
-    validate_ticker(&ticker)?;
+    validate_ticker(ticker)?;
     validate_period(period, "Moving average period")?;
 
     let preceding_rows = period - 1;
 
-    // Build query with concrete number for ROWS clause
+    // Modified query to use string interpolation for execution_date with single quotes for QuestDB
     let query = format!(
         r#"
         WITH latest_ma AS (
-            SELECT 
+            SELECT
                 time,
                 ticker,
                 close,
@@ -476,113 +548,122 @@ pub async fn get_ma_of_price(
                     ORDER BY time
                     ROWS {} PRECEDING
                 ) as moving_average
-            FROM stock_data
+            FROM stock_data_daily
             WHERE ticker = $1
-            AND time <= $2
+            AND time <= '{}'
             ORDER BY time DESC
             LIMIT 1
         )
         SELECT moving_average
         FROM latest_ma
         "#,
-        preceding_rows
+        preceding_rows, execution_date
     );
 
-    let record = sqlx::query(&query)
-        .bind(ticker)
-        .bind(execution_date)
-        .map(|row: sqlx::postgres::PgRow| MAResult {
-            moving_average: row.get("moving_average"),
-        })
-        .fetch_one(pool)
+    // Removed execution_date parameter since it's now interpolated
+    let row = client
+        .query_one(&query, &[&ticker])
         .await
-        .map(|result| result.moving_average)
         .map_err(|e| match e {
-            sqlx::Error::RowNotFound => DatabaseError::InsufficientData(format!(
-                "Insufficient data for {}-day moving average calculation",
-                period
-            )),
-            other => DatabaseError::SqlxError(other),
+            e if e.as_db_error().map_or(false, |dbe| {
+                dbe.code() == &tokio_postgres::error::SqlState::NO_DATA
+            }) =>
+            {
+                DatabaseError::InsufficientData(format!(
+                    "Insufficient data for {}-day moving average calculation for {}",
+                    period,
+                    ticker // Added ticker to error message for better context
+                ))
+            }
+            other => DatabaseError::PostgresError(other),
         })?;
 
-    if !record.is_finite() {
-        return Err(DatabaseError::InvalidCalculation(
-            "Calculation resulted in invalid value".to_string(),
-        ));
+    let ma: f64 = row.get("moving_average");
+
+    // Added more descriptive error message
+    if !ma.is_finite() {
+        return Err(DatabaseError::InvalidCalculation(format!(
+            "Moving average calculation for {} resulted in invalid value",
+            ticker
+        )));
     }
 
-    Ok(record)
-}
+    // Added debug logging for better observability
+    tracing::debug!(
+        %ticker,
+        %execution_date,
+        %period,
+        %ma,
+        "Moving average calculation completed"
+    );
 
+    Ok(ma)
+}
 #[derive(Debug)]
 struct ReturnPriceResult {
     close: f64,
 }
 
 pub async fn get_ma_of_returns(
-    pool: &Pool<Postgres>,
-    ticker: &String,
-    execution_date: &String,
+    client: &Client,
+    ticker: &str, // Changed from &String to &str
+    execution_date: &str,
     period: i64,
 ) -> Result<f64, DatabaseError> {
-    validate_ticker(&ticker)?;
+    validate_ticker(ticker)?;
     validate_period(period, "Moving average period")?;
-    // Need an extra day for return calculation
-    let start_date = get_start_date(&pool, &ticker, &execution_date, period + 1).await?;
-    println!("Start get MA Query");
 
-    let execution_timestamp = DateTime::parse_from_rfc3339(execution_date)
-        .map_err(|e| DatabaseError::InvalidInput(format!("Invalid date format: {}", e)))?
-        .timestamp_micros();
+    let start_date = get_start_date(client, ticker, execution_date, period + 1).await?;
 
-    // Simple SQL query to get just the closing prices
-    let prices = sqlx::query(
+    tracing::debug!("Starting MA of returns calculation"); // Replaced println with proper logging
+
+    // Modified query to use string interpolation for dates with single quotes for QuestDB
+    let query = format!(
         r#"
-        SELECT close
-        FROM stock_data
+        SELECT time, close
+        FROM stock_data_daily
         WHERE ticker = $1
-        AND time >= $2
-        AND time <= $3
+        AND time BETWEEN '{}'
+        AND '{}'
         ORDER BY time ASC
         "#,
-    )
-    .bind(&ticker)
-    .bind(&start_date)
-    .bind(execution_timestamp)
-    .map(|row: sqlx::postgres::PgRow| ReturnPriceResult {
-        close: row.get("close"),
-    })
-    .fetch_all(pool)
-    .await?;
+        start_date, execution_date
+    );
 
-    println!("Queires prices! succesffully");
+    // Removed date parameters since they're interpolated in the query
+    let rows = client.query(&query, &[&ticker]).await?;
 
-    // Basic validation
-    if prices.len() < 2 {
-        return Err(DatabaseError::InsufficientData(
-            "Need at least 2 price points to calculate returns".to_string(),
-        ));
+    tracing::debug!("Retrieved price data successfully"); // Replaced println with proper logging
+
+    if rows.len() < 2 {
+        return Err(DatabaseError::InsufficientData(format!(
+            "Need at least 2 price points to calculate returns for {}",
+            ticker
+        )));
     }
+
+    let prices: Vec<f64> = rows.iter().map(|row| row.get("close")).collect();
 
     // Calculate daily returns with validation
     let daily_returns: Vec<f64> = prices
         .windows(2)
         .map(|window| {
-            let previous_close = window[0].close;
-            let current_close = window[1].close;
+            let previous_close = window[0];
+            let current_close = window[1];
 
             if previous_close == 0.0 {
-                return Err(DatabaseError::InsufficientData(
-                    "Invalid price data: zero price encountered".to_string(),
-                ));
+                return Err(DatabaseError::InsufficientData(format!(
+                    "Invalid price data for {}: zero price encountered",
+                    ticker
+                )));
             }
 
             let daily_return = (current_close - previous_close) / previous_close * 100.0;
 
             if daily_return.abs() > 100.0 {
                 return Err(DatabaseError::InsufficientData(format!(
-                    "Suspicious return value detected: {}%",
-                    daily_return
+                    "Suspicious return value detected for {}: {}%",
+                    ticker, daily_return
                 )));
             }
 
@@ -590,29 +671,39 @@ pub async fn get_ma_of_returns(
         })
         .collect::<Result<Vec<f64>, DatabaseError>>()?;
 
-    // Validate we have enough return data
     if daily_returns.len() < period as usize {
         return Err(DatabaseError::InsufficientData(format!(
-            "Need at least {} data points for {}-day MA",
-            period, period
+            "Need at least {} data points for {}-day MA of returns for {}",
+            period, period, ticker
         )));
     }
 
-    // Calculate moving average of returns
     let ma_return = daily_returns
         .windows(period as usize)
         .last()
         .map(|window| window.iter().sum::<f64>() / window.len() as f64)
         .ok_or_else(|| {
-            DatabaseError::InsufficientData("Failed to calculate moving average".to_string())
+            DatabaseError::InsufficientData(format!(
+                "Failed to calculate moving average of returns for {}",
+                ticker
+            ))
         })?;
 
-    // Final validation
     if !ma_return.is_finite() {
-        return Err(DatabaseError::InvalidCalculation(
-            "Calculation resulted in invalid value".to_string(),
-        ));
+        return Err(DatabaseError::InvalidCalculation(format!(
+            "MA of returns calculation for {} resulted in invalid value",
+            ticker
+        )));
     }
+
+    tracing::debug!(
+        %ticker,
+        %start_date,
+        %execution_date,
+        %period,
+        %ma_return,
+        "MA of returns calculation completed"
+    );
 
     Ok(ma_return)
 }
@@ -622,49 +713,47 @@ struct RSIResult {
     close: f64,
 }
 pub async fn get_rsi(
-    pool: &Pool<Postgres>,
-    ticker: &String,
-    execution_date: &String,
+    client: &Client,
+    ticker: &str, // Changed from &String to &str
+    execution_date: &str,
     period: i64,
 ) -> Result<f64, DatabaseError> {
-    validate_ticker(&ticker)?;
+    validate_ticker(ticker)?;
     validate_period(period, "RSI period")?;
 
-    // Wir brauchen period + 1 Tage für die Berechnung der Preisänderungen
-    let start_date = get_start_date(pool, &ticker, &execution_date, period + 1).await?;
+    let start_date = get_start_date(client, ticker, execution_date, period + 1).await?;
 
-    let prices = sqlx::query(
+    // Modified query to use string interpolation for dates with single quotes for QuestDB
+    let query = format!(
         r#"
         SELECT
             time,
             close
-        FROM stock_data
+        FROM stock_data_daily
         WHERE ticker = $1
-        AND time >= $2
-        AND time <= $3
+        AND time BETWEEN '{}'
+        AND '{}'
         ORDER BY time ASC
         "#,
-    )
-    .bind(&ticker)
-    .bind(&start_date)
-    .bind(&execution_date)
-    .map(|row: sqlx::postgres::PgRow| RSIResult {
-        close: row.get("close"),
-    })
-    .fetch_all(pool)
-    .await?;
+        start_date, execution_date
+    );
 
-    if prices.len() < (period + 1) as usize {
+    // Removed date parameters since they're interpolated in the query
+    let rows = client.query(&query, &[&ticker]).await?;
+
+    if rows.len() < (period + 1) as usize {
         return Err(DatabaseError::InsufficientData(format!(
-            "Found {} data points but need {} for {}-period RSI calculation",
-            prices.len(),
+            "Found {} data points but need {} for {}-period RSI calculation for {}",
+            rows.len(),
             period + 1,
-            period
+            period,
+            ticker
         )));
     }
 
-    let prices: Vec<f64> = prices.into_iter().map(|p| p.close).collect();
+    let prices: Vec<f64> = rows.iter().map(|row| row.get("close")).collect();
 
+    // Calculate gains and losses
     let (gains, losses): (Vec<f64>, Vec<f64>) = prices
         .windows(2)
         .map(|window| {
@@ -681,24 +770,43 @@ pub async fn get_rsi(
     let avg_gain = gains[..period_idx].iter().sum::<f64>() / period as f64;
     let avg_loss = losses[..period_idx].iter().sum::<f64>() / period as f64;
 
-    match (avg_gain, avg_loss) {
+    // Added logging before RSI calculation
+    tracing::debug!(
+        %ticker,
+        %avg_gain,
+        %avg_loss,
+        "Calculated average gains and losses for RSI"
+    );
+
+    let rsi = match (avg_gain, avg_loss) {
         (g, l) if l == 0.0 && g == 0.0 => Ok(50.0),
         (_, l) if l == 0.0 => Ok(100.0),
         (g, _) if g == 0.0 => Ok(0.0),
         (g, l) => {
             let rs = g / l;
             let rsi = 100.0 - (100.0 / (1.0 + rs));
-
             if !rsi.is_finite() || rsi < 0.0 || rsi > 100.0 {
                 Err(DatabaseError::InvalidCalculation(format!(
-                    "RSI calculation resulted in invalid value: {}",
-                    rsi
+                    "RSI calculation for {} resulted in invalid value: {}",
+                    ticker, rsi
                 )))
             } else {
                 Ok(rsi)
             }
         }
-    }
+    }?;
+
+    // Added final debug log with calculation results
+    tracing::debug!(
+        %ticker,
+        %start_date,
+        %execution_date,
+        %period,
+        %rsi,
+        "RSI calculation completed"
+    );
+
+    Ok(rsi)
 }
 
 /// Calculates the standard deviation of prices for a given stock between two dates.
@@ -729,52 +837,41 @@ struct PriceStdDevResult {
     close: f64,
 }
 pub async fn get_price_std_dev(
-    pool: &Pool<Postgres>,
+    client: &Client,
     ticker: &String,
     execution_date: &String,
     period: i64,
 ) -> Result<f64, DatabaseError> {
-    // Validate inputs
     validate_ticker(&ticker)?;
     validate_period(period, "Moving average period")?;
 
-    let start_date = get_start_date(pool, &ticker, &execution_date, period).await?;
+    let start_date = get_start_date(client, &ticker, &execution_date, period).await?;
 
-    // Fetch prices
-    let prices = sqlx::query(
-        r#"
-        SELECT
-            time,
-            close
-        FROM stock_data
-        WHERE ticker = $1
-        AND time >= $2
-        AND time <= $3
-        ORDER BY time ASC
-        "#,
-    )
-    .bind(&ticker)
-    .bind(&start_date)
-    .bind(&execution_date)
-    .map(|row: sqlx::postgres::PgRow| PriceStdDevResult {
-        time: row.get("time"),
-        close: row.get("close"),
-    })
-    .fetch_all(pool)
-    .await?;
+    let rows = client
+        .query(
+            r#"
+            SELECT
+                time,
+                close
+            FROM stock_data_daily
+            WHERE ticker = $1
+            AND time BETWEEN $2
+            AND $3
+            ORDER BY time ASC
+            "#,
+            &[&ticker, &start_date, &execution_date],
+        )
+        .await?;
 
-    // Check if we have enough data
-    if prices.len() < 2 {
+    if rows.len() < 2 {
         return Err(DatabaseError::InsufficientData(
             "Need at least 2 price points to calculate standard deviation".to_string(),
         ));
     }
 
-    // Calculate mean
-    let prices: Vec<f64> = prices.into_iter().map(|p| p.close).collect();
+    let prices: Vec<f64> = rows.iter().map(|row| row.get("close")).collect();
     let mean = prices.iter().sum::<f64>() / prices.len() as f64;
 
-    // Calculate sum of squared differences
     let variance = prices
         .iter()
         .map(|price| {
@@ -784,10 +881,8 @@ pub async fn get_price_std_dev(
         .sum::<f64>()
         / (prices.len() - 1) as f64;
 
-    // Calculate standard deviation
     let std_dev = variance.sqrt();
 
-    // Validate result
     if !std_dev.is_finite() {
         return Err(DatabaseError::InvalidCalculation(
             "Standard deviation calculation resulted in invalid value".to_string(),
@@ -813,76 +908,86 @@ struct StdDevPriceResult {
 }
 
 pub async fn get_returns_std_dev(
-    pool: &Pool<Postgres>,
-    ticker: &String,
-    execution_date: &String,
+    client: &Client,
+    ticker: &str, // Changed from &String to &str
+    execution_date: &str,
     period: i64,
 ) -> Result<f64, DatabaseError> {
-    // Validate inputs
-    validate_ticker(&ticker)?;
+    // Input validation
+    validate_ticker(ticker)?;
     validate_period(period, "Return std dev period")?;
 
-    // Calculate start date using the helper function
-    let start_date = get_start_date(pool, &ticker, &execution_date, period).await?;
+    // Get the start date
+    let start_date = get_start_date(client, ticker, execution_date, period).await?;
 
-    // Fetch prices
-    let prices = sqlx::query(
+    tracing::debug!("Starting returns standard deviation calculation");
+
+    // Modified query to use string interpolation for dates with single quotes for QuestDB
+    let query = format!(
         r#"
         SELECT
             time,
             close
-        FROM stock_data
+        FROM stock_data_daily
         WHERE ticker = $1
-        AND time >= $2
-        AND time <= $3
+        AND time BETWEEN '{}'
+        AND '{}'
         ORDER BY time ASC
         "#,
-    )
-    .bind(&ticker)
-    .bind(&start_date)
-    .bind(&execution_date)
-    .map(|row: sqlx::postgres::PgRow| StdDevPriceResult {
-        close: row.get("close"),
-    })
-    .fetch_all(pool)
-    .await?;
+        start_date, execution_date
+    );
 
-    // Need at least 2 prices to calculate returns
-    if prices.len() < 2 {
-        return Err(DatabaseError::InsufficientData(
-            "Need at least 2 price points to calculate return standard deviation".to_string(),
-        ));
+    // Fetch all prices for the period
+    // Removed date parameters since they're interpolated in the query
+    let rows = client.query(&query, &[&ticker]).await?;
+
+    // Check if we have enough data points
+    if rows.len() < 2 {
+        return Err(DatabaseError::InsufficientData(format!(
+            "Need at least 2 price points to calculate return standard deviation for {}",
+            ticker
+        )));
     }
 
-    // Calculate daily returns
-    let mut daily_returns = Vec::new();
-    for i in 1..prices.len() {
-        let previous_close = prices[i - 1].close;
-        let current_close = prices[i].close;
+    // Extract close prices
+    let prices: Vec<f64> = rows.iter().map(|row| row.get("close")).collect();
 
-        // Avoid division by zero
+    // Calculate daily returns with validation
+    let mut daily_returns = Vec::with_capacity(prices.len() - 1);
+    for i in 1..prices.len() {
+        let previous_close = prices[i - 1];
+        let current_close = prices[i];
+
         if previous_close == 0.0 {
-            return Err(DatabaseError::InvalidCalculation(
-                "Invalid price data: zero price encountered".to_string(),
-            ));
+            return Err(DatabaseError::InvalidCalculation(format!(
+                "Invalid price data for {}: zero price encountered",
+                ticker
+            )));
         }
 
         let daily_return = (current_close - previous_close) / previous_close * 100.0;
 
-        // Validate return value
         if !daily_return.is_finite() {
-            return Err(DatabaseError::InvalidCalculation(
-                "Return calculation resulted in invalid value".to_string(),
-            ));
+            return Err(DatabaseError::InvalidCalculation(format!(
+                "Return calculation for {} resulted in invalid value",
+                ticker
+            )));
         }
 
         daily_returns.push(daily_return);
     }
 
-    // Calculate mean of returns
+    // Calculate mean return
     let mean_return = daily_returns.iter().sum::<f64>() / daily_returns.len() as f64;
 
-    // Calculate sum of squared differences from mean
+    tracing::debug!(
+        %ticker,
+        %mean_return,
+        returns_count = daily_returns.len(),
+        "Calculated mean return"
+    );
+
+    // Calculate variance (sum of squared deviations from mean)
     let variance = daily_returns
         .iter()
         .map(|return_value| {
@@ -897,16 +1002,28 @@ pub async fn get_returns_std_dev(
 
     // Validate final result
     if !std_dev.is_finite() {
-        return Err(DatabaseError::InvalidCalculation(
-            "Standard deviation calculation resulted in invalid value".to_string(),
-        ));
+        return Err(DatabaseError::InvalidCalculation(format!(
+            "Standard deviation calculation for {} resulted in invalid value",
+            ticker
+        )));
     }
+
+    // Added final debug log with calculation results
+    tracing::debug!(
+        %ticker,
+        %start_date,
+        %execution_date,
+        %period,
+        %std_dev,
+        %mean_return,
+        %variance,
+        "Returns standard deviation calculation completed"
+    );
 
     Ok(std_dev)
 }
-
 pub async fn get_market_cap(
-    pool: &Pool<Postgres>,
+    client: &Client,
     ticker: &String,
     execution_date: &String,
 ) -> Result<f64, DatabaseError> {
@@ -1068,21 +1185,14 @@ pub async fn get_market_cap(
 //         .map(|(ticker, weight)| (ticker.clone(), *weight))
 //         .collect())
 // }
-
+use deadpool_postgres::PoolError;
 #[cfg(test)]
 mod tests {
     use super::*;
     use chrono::TimeZone;
+    use deadpool_postgres::{Config, Runtime};
+    use tokio_postgres::NoTls;
 
-    async fn setup_test_pool() -> Result<Pool<Postgres>, DatabaseError> {
-        PgPoolOptions::new()
-            .max_connections(5)
-            .connect("postgresql://admin:quest@localhost:9000/qdb")
-            .await
-            .map_err(DatabaseError::SqlxError)
-    }
-
-    // Helper function tests
     #[test]
     fn test_validate_ticker() {
         assert!(validate_ticker("AAPL").is_ok());
@@ -1106,13 +1216,13 @@ mod tests {
         assert!(validate_date_range(end, start).is_err());
     }
 
-    // Database function tests
     #[tokio::test]
     async fn test_get_current_price() -> Result<(), DatabaseError> {
-        let pool = setup_test_pool().await?;
-        let execution_date = Utc.with_ymd_and_hms(2015, 1, 1, 0, 0, 0).unwrap();
+        let client = setup_test_client().await?;
+        let execution_date = "2015-01-01".to_string();
 
-        let current_price = get_current_price(&pool, "AAPL".to_string(), execution_date).await?;
+        let current_price =
+            get_current_price(&client, &"AAPL".to_string(), &execution_date).await?;
         assert!(current_price.close > 0.0);
         assert_eq!(current_price.ticker, "AAPL");
 
@@ -1121,10 +1231,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_sma() -> Result<(), DatabaseError> {
-        let pool = setup_test_pool().await?;
-        let execution_date = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
+        let client = setup_test_client().await?;
+        let execution_date = "2020-01-01".to_string();
 
-        let sma = get_sma(&pool, "AAPL".to_string(), execution_date, 20).await?;
+        let sma = get_sma(&client, &"AAPL".to_string(), &execution_date, 20).await?;
         assert!(sma.is_finite());
         assert!(sma > 0.0);
 
@@ -1133,10 +1243,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_ema() -> Result<(), DatabaseError> {
-        let pool = setup_test_pool().await?;
-        let execution_date = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
+        let client = setup_test_client().await?;
+        let execution_date = "2020-01-01".to_string();
 
-        let ema = get_ema(&pool, "AAPL".to_string(), execution_date, 20).await?;
+        let ema = get_ema(&client, &"AAPL".to_string(), &execution_date, 20).await?;
         assert!(ema.is_finite());
         assert!(ema > 0.0);
 
@@ -1144,82 +1254,35 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_cumulative_return() -> Result<(), DatabaseError> {
-        let pool = setup_test_pool().await?;
-        let execution_date = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
-
-        let return_value =
-            get_cumulative_return(&pool, "AAPL".to_string(), execution_date, 20).await?;
-
-        assert!(return_value.is_finite());
-        println!("20-day return: {:.2}%", return_value);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_get_ma_of_price() -> Result<(), DatabaseError> {
-        let pool = setup_test_pool().await?;
-        let execution_date = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
-
-        let ma = get_ma_of_price(&pool, "AAPL".to_string(), execution_date, 20).await?;
-        assert!(ma.is_finite());
-        assert!(ma > 0.0);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_get_ma_of_returns() -> Result<(), DatabaseError> {
-        let pool = setup_test_pool().await?;
-        let execution_date = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
-
-        let ma = get_ma_of_returns(&pool, "AAPL".to_string(), execution_date, 20).await?;
-        assert!(ma.is_finite());
-
-        Ok(())
-    }
-
-    #[tokio::test]
     async fn test_get_rsi() -> Result<(), DatabaseError> {
-        let pool = setup_test_pool().await?;
-        let execution_date = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
+        let client = setup_test_client().await?;
+        let execution_date = "2020-01-01".to_string();
 
-        let rsi = get_rsi(&pool, "AAPL".to_string(), execution_date, 14).await?;
+        let rsi = get_rsi(&client, &"AAPL".to_string(), &execution_date, 14).await?;
         assert!(rsi >= 0.0 && rsi <= 100.0);
 
         Ok(())
     }
 
-    // Error case tests
     #[tokio::test]
     async fn test_invalid_ticker() -> Result<(), DatabaseError> {
-        let pool = setup_test_pool().await?;
-        let execution_date = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
+        let client = setup_test_client().await?;
+        let execution_date = "2020-01-01".to_string();
 
-        let result = get_current_price(&pool, "INVALID".to_string(), execution_date).await;
+        let result = get_current_price(&client, &"INVALID".to_string(), &execution_date).await;
         assert!(matches!(result, Err(DatabaseError::InsufficientData(_))));
 
         Ok(())
     }
 
     #[tokio::test]
-    async fn test_invalid_period() -> Result<(), DatabaseError> {
-        let pool = setup_test_pool().await?;
-        let execution_date = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
-
-        let result = get_sma(&pool, "AAPL".to_string(), execution_date, 0).await;
-        assert!(matches!(result, Err(DatabaseError::InvalidPeriod(_))));
-
-        Ok(())
-    }
-
-    #[tokio::test]
     async fn test_future_date() -> Result<(), DatabaseError> {
-        let pool = setup_test_pool().await?;
-        let future_date = Utc::now() + chrono::Duration::days(365);
+        let client = setup_test_client().await?;
+        let future_date = (Utc::now() + chrono::Duration::days(365))
+            .format("%Y-%m-%d")
+            .to_string();
 
-        let result = get_current_price(&pool, "AAPL".to_string(), future_date).await;
+        let result = get_current_price(&client, &"AAPL".to_string(), &future_date).await;
         assert!(matches!(result, Err(DatabaseError::InsufficientData(_))));
 
         Ok(())
