@@ -77,7 +77,7 @@ pub async fn get_start_date(
     let start_date = DateTime::<Utc>::from_naive_utc_and_offset(time, Utc)
         .to_rfc3339_opts(SecondsFormat::Micros, true);
 
-    //print!("Found start date: {}", start_date);
+    print!("Found start date: {}", start_date);
 
     tracing::debug!(
         execution_date = %execution_date,
@@ -204,8 +204,8 @@ pub struct CurrentPrice {
 
 pub async fn get_current_price(
     client: &Client,
-    ticker: &String,
-    execution_date: &String,
+    ticker: &str,
+    execution_date: &str,
 ) -> Result<CurrentPrice, DatabaseError> {
     validate_ticker(&ticker)?;
 

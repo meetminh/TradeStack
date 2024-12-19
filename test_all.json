@@ -12,7 +12,7 @@
           "blocktype": "Condition",
           "function": {
             "function_name": "cumulative_return",
-            "window_of_days": 200,
+            "window_of_days": 100,
             "asset": "SPY"
           },
           "operator": ">",
