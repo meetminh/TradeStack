@@ -1,0 +1,190 @@
+{
+  "blocktype": "Group",
+  "name": "PrintingStocks",
+  "children": [
+    {
+      "blocktype": "Weight",
+      "type": "equal",
+      "children": [
+        {
+          "blocktype": "Condition",
+          "function": {
+            "function_name": "max_drawdown",
+            "window_of_days": 60,
+            "asset": "QQQ"
+          },
+          "operator": ">",
+          "compare_to": {
+            "type": "fixed_value",
+            "value": 15,
+            "unit": "%"
+          },
+          "children": [
+            {
+              "blocktype": "Group",
+              "name": "Cash Position",
+              "children": [
+                {
+                  "blocktype": "Weight",
+                  "type": "specified",
+                  "allocation_type": "percentage",
+                  "values": [100],
+                  "children": [
+                    {
+                      "blocktype": "Asset",
+                      "ticker": "BIL",
+                      "company_name": "SPDR Bloomberg 1-3 Month T-Bill ETF",
+                      "exchange": "NYSE"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "blocktype": "Condition",
+              "function": {
+                "function_name": "exponential_moving_average",
+                "window_of_days": 200,
+                "asset": "QQQ"
+              },
+              "operator": ">",
+              "compare_to": {
+                "type": "function",
+                "function": {
+                  "function_name": "current_price",
+                  "window_of_days": null,
+                  "asset": "QQQ"
+                }
+              },
+              "children": [
+                {
+                  "blocktype": "Group",
+                  "name": "Cash Position",
+                  "children": [
+                    {
+                      "blocktype": "Weight",
+                      "type": "specified",
+                      "allocation_type": "percentage",
+                      "values": [100],
+                      "children": [
+                        {
+                          "blocktype": "Asset",
+                          "ticker": "BIL",
+                          "company_name": "SPDR Bloomberg 1-3 Month T-Bill ETF",
+                          "exchange": "NYSE"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "blocktype": "Condition",
+                  "function": {
+                    "function_name": "max_drawdown",
+                    "window_of_days": 28,
+                    "asset": "QQQ"
+                  },
+                  "operator": ">",
+                  "compare_to": {
+                    "type": "fixed_value",
+                    "value": 9,
+                    "unit": "%"
+                  },
+                  "children": [
+                    {
+                      "blocktype": "Group",
+                      "name": "Cash Position",
+                      "children": [
+                        {
+                          "blocktype": "Weight",
+                          "type": "specified",
+                          "allocation_type": "percentage",
+                          "values": [100],
+                          "children": [
+                            {
+                              "blocktype": "Asset",
+                              "ticker": "BIL",
+                              "company_name": "SPDR Bloomberg 1-3 Month T-Bill ETF",
+                              "exchange": "NYSE"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "blocktype": "Group",
+                      "name": "Top Tech Performers",
+                      "children": [
+                        {
+                          "blocktype": "Weight",
+                          "type": "equal",
+                          "children": [
+                            {
+                              "blocktype": "Filter",
+                              "sort_function": {
+                                "function_name": "cumulative_return",
+                                "window_of_days": 15
+                              },
+                              "select": {
+                                "option": "Top",
+                                "amount": 2
+                              },
+                              "children": [
+                                {
+                                  "blocktype": "Asset",
+                                  "ticker": "META",
+                                  "company_name": "Meta Platforms Inc.",
+                                  "exchange": "NASDAQ"
+                                },
+                                {
+                                  "blocktype": "Asset",
+                                  "ticker": "AMZN",
+                                  "company_name": "Amazon.com Inc.",
+                                  "exchange": "NASDAQ"
+                                },
+                                {
+                                  "blocktype": "Asset",
+                                  "ticker": "AAPL",
+                                  "company_name": "Apple Inc.",
+                                  "exchange": "NASDAQ"
+                                },
+                                {
+                                  "blocktype": "Asset",
+                                  "ticker": "MSFT",
+                                  "company_name": "Microsoft Corporation",
+                                  "exchange": "NASDAQ"
+                                },
+                                {
+                                  "blocktype": "Asset",
+                                  "ticker": "GOOG",
+                                  "company_name": "Alphabet Inc.",
+                                  "exchange": "NASDAQ"
+                                },
+                                {
+                                  "blocktype": "Asset",
+                                  "ticker": "TSLA",
+                                  "company_name": "Tesla Inc.",
+                                  "exchange": "NASDAQ"
+                                },
+                                {
+                                  "blocktype": "Asset",
+                                  "ticker": "NVDA",
+                                  "company_name": "NVIDIA Corporation",
+                                  "exchange": "NASDAQ"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

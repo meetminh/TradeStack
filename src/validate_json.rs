@@ -401,12 +401,20 @@ fn validate_function_definition(function: &FunctionDefinition) -> Result<(), Con
                     "Window of days must be greater than 0".to_string(),
                 ))
             }
-            Some(days) if days > 252 => {
-                return Err(ConditionError::FunctionError(
-                    "Window of days cannot exceed 252".to_string(),
-                ))
-            }
-            _ => {}
+            Some(days) => {
+                // Different limits for different functions
+                let max_days = match function.function_name {
+                    FunctionName::ExponentialMovingAverage => 500, // Increased limit for EMA
+                    _ => 252, // Default limit for other functions
+                };
+
+                if days > max_days {
+                    return Err(ConditionError::FunctionError(format!(
+                        "Window of days cannot exceed {} for {}",
+                        max_days, function.function_name
+                    )));
+                }
+            } //  _ => {}
         }
     } else if function.window_of_days.is_some() {
         return Err(ConditionError::InvalidWindowDays);

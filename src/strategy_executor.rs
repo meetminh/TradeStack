@@ -134,11 +134,23 @@ fn execute_block<'a>(
                     Ok(Vec::new())
                 }
             }
-            BlockAttributes::Asset { ticker, .. } => Ok(vec![Allocation {
-                ticker: ticker.clone(),
-                weight: parent_weight,
-                date: execution_date.clone(),
-            }]),
+            BlockAttributes::Asset { ticker, .. } => {
+                // Special handling for BIL (cash equivalent)
+                if ticker == "BIL" {
+                    debug!("Converting BIL allocation to CASH");
+                    Ok(vec![Allocation {
+                        ticker: String::from("CASH"),
+                        weight: parent_weight,
+                        date: execution_date.clone(),
+                    }])
+                } else {
+                    Ok(vec![Allocation {
+                        ticker: ticker.clone(),
+                        weight: parent_weight,
+                        date: execution_date.clone(),
+                    }])
+                }
+            }
         }
     })
 }
@@ -205,8 +217,6 @@ async fn evaluate_condition(
 
     Ok(result)
 }
-use tokio::time::sleep;
-use tokio::time::Duration;
 
 async fn evaluate_function(
     function: &FunctionDefinition,
@@ -215,7 +225,6 @@ async fn evaluate_function(
 ) -> Result<f64, DatabaseError> {
     debug!("Evaluating function with date: {}", execution_date);
     info!("Start eval");
-    let sleeptime: u64 = 80;
 
     // Get a client from the pool
     let client = pool.get().await?;
@@ -229,7 +238,7 @@ async fn evaluate_function(
                 function.window_of_days.unwrap_or(20) as i64,
             )
             .await?;
-            sleep(Duration::from_millis(sleeptime)).await;
+
             Ok(result)
         }
         FunctionName::CurrentPrice => {
@@ -239,7 +248,7 @@ async fn evaluate_function(
                 execution_date,
             )
             .await?;
-            sleep(Duration::from_millis(sleeptime)).await;
+
             Ok(price.close)
         }
         FunctionName::RelativeStrengthIndex => {
@@ -250,7 +259,7 @@ async fn evaluate_function(
                 function.window_of_days.unwrap_or(14) as i64,
             )
             .await?;
-            sleep(Duration::from_millis(sleeptime)).await;
+
             Ok(rsi)
         }
         FunctionName::SimpleMovingAverage => {
@@ -261,7 +270,7 @@ async fn evaluate_function(
                 function.window_of_days.unwrap_or(20) as i64,
             )
             .await?;
-            sleep(Duration::from_millis(sleeptime)).await;
+
             Ok(sma)
         }
         FunctionName::ExponentialMovingAverage => {
@@ -272,19 +281,30 @@ async fn evaluate_function(
                 function.window_of_days.unwrap_or(20) as i64,
             )
             .await?;
-            sleep(Duration::from_millis(sleeptime)).await;
+
             Ok(ema)
         }
-        FunctionName::MovingAverageOfPrice => {
-            let ma_price = database_functions::get_ma_of_price(
-                &client, // Pass the client instead of the pool
+        // FunctionName::MovingAverageOfPrice => {
+        //     let ma_price = database_functions::get_ma_of_price(
+        //         &client, // Pass the client instead of the pool
+        //         &function.asset,
+        //         execution_date,
+        //         function.window_of_days.unwrap_or(20) as i64,
+        //     )
+        //     .await?;
+        //
+        //     Ok(ma_price)
+        // }
+        FunctionName::MaxDrawdown => {
+            let result = database_functions::get_max_drawdown(
+                &client,
                 &function.asset,
                 execution_date,
                 function.window_of_days.unwrap_or(20) as i64,
             )
             .await?;
-            sleep(Duration::from_millis(sleeptime)).await;
-            Ok(ma_price)
+
+            Ok(result.max_drawdown_percentage) // Note we use the percentage field
         }
         FunctionName::MovingAverageOfReturns => {
             let ma_returns = database_functions::get_ma_of_returns(
@@ -294,7 +314,7 @@ async fn evaluate_function(
                 function.window_of_days.unwrap_or(20) as i64,
             )
             .await?;
-            sleep(Duration::from_millis(sleeptime)).await;
+
             Ok(ma_returns)
         }
         FunctionName::PriceStandardDeviation => {
@@ -305,7 +325,7 @@ async fn evaluate_function(
                 function.window_of_days.unwrap_or(20) as i64,
             )
             .await?;
-            sleep(Duration::from_millis(sleeptime)).await;
+
             Ok(price_std)
         }
         FunctionName::ReturnsStandardDeviation => {
@@ -316,7 +336,7 @@ async fn evaluate_function(
                 function.window_of_days.unwrap_or(20) as i64,
             )
             .await?;
-            sleep(Duration::from_millis(sleeptime)).await;
+
             Ok(returns_std)
         }
         FunctionName::MarketCap => {
@@ -326,7 +346,7 @@ async fn evaluate_function(
                 execution_date,
             )
             .await?;
-            sleep(Duration::from_millis(sleeptime)).await;
+
             Ok(market_cap)
         }
     }

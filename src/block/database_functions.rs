@@ -122,10 +122,17 @@ fn validate_period(period: i64, context: &str) -> Result<(), DatabaseError> {
             context
         )));
     }
-    if period > 100 {
+    // Different limits for different periods based on context
+    let max_period = match context {
+        "EMA period" => 500,   // Allow up to 500 days for EMA
+        "Trading days" => 500, // Also allow up to 500 days for trading days
+        _ => 100,              // Keep default 100 days for other indicators
+    };
+
+    if period > max_period {
         return Err(DatabaseError::InvalidPeriod(format!(
-            "{} too large, maximum is 100",
-            context
+            "{} too large, maximum is {}",
+            context, max_period
         )));
     }
     Ok(())
@@ -519,86 +526,87 @@ pub async fn get_max_drawdown(
 
     Ok(result)
 }
-#[derive(Debug)]
-struct MAResult {
-    moving_average: f64,
-}
+// #[derive(Debug)]
+// struct MAResult {
+//     moving_average: f64,
+// }
 
-pub async fn get_ma_of_price(
-    client: &Client,
-    ticker: &str, // Changed from &String to &str
-    execution_date: &str,
-    period: i64,
-) -> Result<f64, DatabaseError> {
-    validate_ticker(ticker)?;
-    validate_period(period, "Moving average period")?;
+// pub async fn get_ma_of_price(
+//     client: &Client,
+//     ticker: &str, // Changed from &String to &str
+//     execution_date: &str,
+//     period: i64,
+// ) -> Result<f64, DatabaseError> {
+//     validate_ticker(ticker)?;
+//     validate_period(period, "Moving average period")?;
 
-    let preceding_rows = period - 1;
+//     let preceding_rows = period - 1;
 
-    // Modified query to use string interpolation for execution_date with single quotes for QuestDB
-    let query = format!(
-        r#"
-        WITH latest_ma AS (
-            SELECT
-                time,
-                ticker,
-                close,
-                avg(close) OVER (
-                    PARTITION BY ticker
-                    ORDER BY time
-                    ROWS {} PRECEDING
-                ) as moving_average
-            FROM stock_data_daily
-            WHERE ticker = $1
-            AND time <= '{}'
-            ORDER BY time DESC
-            LIMIT 1
-        )
-        SELECT moving_average
-        FROM latest_ma
-        "#,
-        preceding_rows, execution_date
-    );
+//     // Modified query to use string interpolation for execution_date with single quotes for QuestDB
+//     let query = format!(
+//         r#"
+//         WITH latest_ma AS (
+//             SELECT
+//                 time,
+//                 ticker,
+//                 close,
+//                 avg(close) OVER (
+//                     PARTITION BY ticker
+//                     ORDER BY time
+//                     ROWS {} PRECEDING
+//                 ) as moving_average
+//             FROM stock_data_daily
+//             WHERE ticker = $1
+//             AND time <= '{}'
+//             ORDER BY time DESC
+//             LIMIT 1
+//         )
+//         SELECT moving_average
+//         FROM latest_ma
+//         "#,
+//         preceding_rows, execution_date
+//     );
 
-    // Removed execution_date parameter since it's now interpolated
-    let row = client
-        .query_one(&query, &[&ticker])
-        .await
-        .map_err(|e| match e {
-            e if e.as_db_error().map_or(false, |dbe| {
-                dbe.code() == &tokio_postgres::error::SqlState::NO_DATA
-            }) =>
-            {
-                DatabaseError::InsufficientData(format!(
-                    "Insufficient data for {}-day moving average calculation for {}",
-                    period,
-                    ticker // Added ticker to error message for better context
-                ))
-            }
-            other => DatabaseError::PostgresError(other),
-        })?;
+//     // Removed execution_date parameter since it's now interpolated
+//     let row = client
+//         .query_one(&query, &[&ticker])
+//         .await
+//         .map_err(|e| match e {
+//             e if e.as_db_error().map_or(false, |dbe| {
+//                 dbe.code() == &tokio_postgres::error::SqlState::NO_DATA
+//             }) =>
+//             {
+//                 DatabaseError::InsufficientData(format!(
+//                     "Insufficient data for {}-day moving average calculation for {}",
+//                     period,
+//                     ticker // Added ticker to error message for better context
+//                 ))
+//             }
+//             other => DatabaseError::PostgresError(other),
+//         })?;
 
-    let ma: f64 = row.get("moving_average");
+//     let ma: f64 = row.get("moving_average");
 
-    // Added more descriptive error message
-    if !ma.is_finite() {
-        return Err(DatabaseError::InvalidCalculation(format!(
-            "Moving average calculation for {} resulted in invalid value",
-            ticker
-        )));
-    }
+//     // Added more descriptive error message
+//     if !ma.is_finite() {
+//         return Err(DatabaseError::InvalidCalculation(format!(
+//             "Moving average calculation for {} resulted in invalid value",
+//             ticker
+//         )));
+//     }
 
-    // Added debug logging for better observability
-    tracing::debug!(
-        %ticker,
-        %execution_date,
-        %period,
-        %ma,
-        "Moving average calculation completed"
-    );
+//     // Added debug logging for better observability
+//     tracing::debug!(
+//         %ticker,
+//         %execution_date,
+//         %period,
+//         %ma,
+//         "Moving average calculation completed"
+//     );
 
-    Ok(ma)
-}
+//     Ok(ma)
+// }
+
 #[derive(Debug)]
 struct ReturnPriceResult {
     close: f64,
@@ -838,8 +846,8 @@ struct PriceStdDevResult {
 }
 pub async fn get_price_std_dev(
     client: &Client,
-    ticker: &String,
-    execution_date: &String,
+    ticker: &str,
+    execution_date: &str,
     period: i64,
 ) -> Result<f64, DatabaseError> {
     validate_ticker(&ticker)?;

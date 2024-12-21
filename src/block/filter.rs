@@ -14,12 +14,13 @@ const VALID_FUNCTIONS: [FunctionName; 10] = [
     FunctionName::SimpleMovingAverage,
     FunctionName::ExponentialMovingAverage,
     FunctionName::CumulativeReturn,
-    FunctionName::MovingAverageOfPrice,
+    // FunctionName::MovingAverageOfPrice,
     FunctionName::MovingAverageOfReturns,
     FunctionName::RelativeStrengthIndex,
     FunctionName::PriceStandardDeviation,
     FunctionName::ReturnsStandardDeviation,
     FunctionName::MarketCap,
+    FunctionName::MaxDrawdown,
 ];
 
 /// Applies filtering logic to a set of assets based on a sorting function and selection criteria
@@ -76,7 +77,6 @@ pub async fn apply_filter(
                     continue; // Skip this asset but continue processing others
                 }
             }
-            sleep(Duration::from_millis(100)).await;
         }
     }
 
@@ -139,7 +139,7 @@ async fn calculate_asset_value(
         FunctionName::CurrentPrice => {
             let price =
                 database_functions::get_current_price(&client, ticker, execution_date).await?;
-            sleep(Duration::from_millis(100)).await;
+
             Ok(price.close)
         }
         FunctionName::SimpleMovingAverage => {
@@ -150,7 +150,7 @@ async fn calculate_asset_value(
                 function.window_of_days.unwrap_or(20) as i64,
             )
             .await?;
-            sleep(Duration::from_millis(100)).await;
+
             Ok(sma)
         }
         FunctionName::ExponentialMovingAverage => {
@@ -161,7 +161,7 @@ async fn calculate_asset_value(
                 function.window_of_days.unwrap_or(20) as i64,
             )
             .await?;
-            sleep(Duration::from_millis(100)).await;
+
             Ok(ema)
         }
         FunctionName::CumulativeReturn => {
@@ -172,19 +172,30 @@ async fn calculate_asset_value(
                 function.window_of_days.unwrap_or(20) as i64,
             )
             .await?;
-            sleep(Duration::from_millis(100)).await;
+
             Ok(cum_return)
         }
-        FunctionName::MovingAverageOfPrice => {
-            let ma_price = database_functions::get_ma_of_price(
+        // FunctionName::MovingAverageOfPrice => {
+        //     let ma_price = database_functions::get_ma_of_price(
+        //         &client,
+        //         ticker,
+        //         execution_date,
+        //         function.window_of_days.unwrap_or(20) as i64,
+        //     )
+        //     .await?;
+        //     sleep(Duration::from_millis(100)).await;
+        //     Ok(ma_price)
+        // }
+        FunctionName::MaxDrawdown => {
+            let result = database_functions::get_max_drawdown(
                 &client,
-                ticker,
+                &function.asset,
                 execution_date,
                 function.window_of_days.unwrap_or(20) as i64,
             )
             .await?;
-            sleep(Duration::from_millis(100)).await;
-            Ok(ma_price)
+
+            Ok(result.max_drawdown_percentage) // Note we use the percentage field
         }
         FunctionName::MovingAverageOfReturns => {
             let ma_returns = database_functions::get_ma_of_returns(
@@ -194,7 +205,7 @@ async fn calculate_asset_value(
                 function.window_of_days.unwrap_or(20) as i64,
             )
             .await?;
-            sleep(Duration::from_millis(100)).await;
+
             Ok(ma_returns)
         }
         FunctionName::RelativeStrengthIndex => {
@@ -205,7 +216,7 @@ async fn calculate_asset_value(
                 function.window_of_days.unwrap_or(14) as i64,
             )
             .await?;
-            sleep(Duration::from_millis(100)).await;
+
             Ok(rsi)
         }
         FunctionName::PriceStandardDeviation => {
@@ -216,7 +227,7 @@ async fn calculate_asset_value(
                 function.window_of_days.unwrap_or(20) as i64,
             )
             .await?;
-            sleep(Duration::from_millis(100)).await;
+
             Ok(price_std)
         }
         FunctionName::ReturnsStandardDeviation => {
@@ -227,13 +238,13 @@ async fn calculate_asset_value(
                 function.window_of_days.unwrap_or(20) as i64,
             )
             .await?;
-            sleep(Duration::from_millis(100)).await;
+
             Ok(returns_std)
         }
         FunctionName::MarketCap => {
             let market_cap =
                 database_functions::get_market_cap(&client, ticker, execution_date).await?;
-            sleep(Duration::from_millis(100)).await;
+
             Ok(market_cap)
         }
     }

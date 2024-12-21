@@ -119,12 +119,13 @@ pub enum FunctionName {
     CumulativeReturn,
     SimpleMovingAverage,
     ExponentialMovingAverage,
-    MovingAverageOfPrice,
+    //    MovingAverageOfPrice,
     MovingAverageOfReturns,
     RelativeStrengthIndex,
     PriceStandardDeviation,
     ReturnsStandardDeviation,
     MarketCap,
+    MaxDrawdown,
 }
 
 // Hilfsmethode hinzufügen
@@ -132,6 +133,7 @@ impl FunctionName {
     pub fn requires_window_of_days(&self) -> bool {
         match self {
             FunctionName::CurrentPrice | FunctionName::MarketCap => false,
+            FunctionName::MaxDrawdown => true,
             _ => true,
         }
     }
