@@ -107,6 +107,140 @@ fn execute_block<'a>(
                             }
                             Ok(weighted_allocations)
                         }
+                        WeightType::InverseVolatility => {
+                            // Extract window_of_trading_days only for inverse volatility
+                            let window_of_trading_days = if let BlockAttributes::Weight { window_of_trading_days, .. } = &block.attributes {
+                                *window_of_trading_days
+                            } else {
+                                None // This should never happen due to the outer match
+                            };
+
+                            // Get valid assets after conditions/filters
+                            let temp_allocations = execute_children(
+                                children, 
+                                pool, 
+                                execution_date,
+                                1.0  // temporary equal weight for traversal
+                            ).await?;
+                            
+                            // Early return for single asset case
+                            if temp_allocations.len() == 1 {
+                                return Ok(vec![Allocation::new(
+                                    temp_allocations[0].ticker.clone(),
+                                    parent_weight,
+                                    execution_date.clone(),
+                                )?]);
+                            }
+                            
+                            // Extract unique tickers - using owned strings
+                            let tickers: Vec<String> = temp_allocations
+                                .iter()
+                                .map(|a| a.ticker.clone())
+                                .collect();
+                            
+                            // Get period from block attributes, default to 252 trading days (1 year)
+                            let period = window_of_trading_days.unwrap_or(252);
+                            
+                            // Calculate volatilities in parallel using references
+                            let volatility_futures: Vec<_> = tickers
+                                .iter()
+                                .map(|ticker| {
+                                    let pool = pool.clone();
+                                    let exec_date = execution_date.clone();
+                                    let period = period as i64;  
+                                    let ticker = ticker.clone();
+                                    tokio::spawn(async move {
+                                        let client = pool.get().await.map_err(|e| {
+                                            DatabaseError::InvalidCalculation(
+                                                format!("Failed to get database client: {}", e)
+                                            )
+                                        })?;
+                                        database_functions::get_returns_std_dev(
+                                            &client,
+                                            &ticker,
+                                            &exec_date,
+                                            period
+                                        ).await.map(|vol| (ticker, vol))
+                                    })
+                                })
+                                .collect();
+                            
+                            // Collect results and calculate inverse volatilities
+                            let mut inverse_vols = Vec::with_capacity(tickers.len());
+                            let mut total_inverse_vol = 0.0;
+                            
+                            // Process results and handle errors
+                            for handle in volatility_futures {
+                                let (ticker, vol) = handle.await.map_err(|e| {
+                                    DatabaseError::InvalidCalculation(
+                                        format!("Failed to calculate volatility: {}", e)
+                                    )
+                                })??;
+                                
+                                let inverse_vol = 1.0 / vol;
+                                if !inverse_vol.is_finite() || inverse_vol <= 0.0 {
+                                    return Err(DatabaseError::InvalidCalculation(
+                                        format!("Invalid volatility value for {}: {}", ticker, vol)
+                                    ));
+                                }
+                                
+                                inverse_vols.push((ticker, inverse_vol));
+                                total_inverse_vol += inverse_vol;
+                            }
+                            
+                            // Create final allocations with normalized weights
+                            let allocations = inverse_vols
+                                .into_iter()
+                                .map(|(ticker, inverse_vol)| {
+                                    let weight = parent_weight * (inverse_vol / total_inverse_vol);
+                                    Allocation::new(
+                                        ticker,
+                                        weight,
+                                        execution_date.clone(),
+                                    )
+                                })
+                                .collect::<Result<Vec<_>, _>>()?;
+                            
+                            Ok(allocations)
+                        }
+                        WeightType::MarketCap => {
+                            tracing::warn!(
+                                "Market cap weighting is currently using placeholder values. All stocks will be equally weighted."
+                            );
+
+                            // Get valid assets after conditions/filters
+                            let temp_allocations = execute_children(
+                                children, 
+                                pool, 
+                                execution_date,
+                                1.0  // temporary equal weight for traversal
+                            ).await?;
+                            
+                            // Early return for single asset case
+                            if temp_allocations.len() == 1 {
+                                return Ok(vec![Allocation::new(
+                                    temp_allocations[0].ticker.clone(),
+                                    parent_weight,
+                                    execution_date.clone(),
+                                )?]);
+                            }
+                            
+                            // Since market_cap returns same value for all stocks,
+                            // we can optimize by just doing equal weighting
+                            let weight = parent_weight / temp_allocations.len() as f64;
+                            let allocations = temp_allocations
+                                .into_iter()
+                                .map(|alloc| {
+                                    Allocation::new(
+                                        alloc.ticker,
+                                        weight,
+                                        execution_date.clone(),
+                                    )
+                                })
+                                .collect::<Result<Vec<_>, _>>()?;
+                            
+                            Ok(allocations)
+                        }
                         _ => Err(DatabaseError::InvalidInput(format!(
                             "Unsupported weight type: {:?}",
                             weight_type

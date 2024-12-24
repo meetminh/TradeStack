@@ -1038,6 +1038,29 @@ pub async fn get_market_cap(
     // TODO: Implement actual market cap calculation
     // For now, return a dummy value
     Ok(1000000.0)
+    // validate_ticker(ticker)?;
+    
+    // let query = format!(
+    //     "SELECT close * shares_outstanding as market_cap
+    //      FROM stock_data_daily
+    //      WHERE ticker = $1
+    //      AND time <= '{}'
+    //      ORDER BY time DESC
+    //      LIMIT 1",
+    //     execution_date
+    // );
+
+    // let row = client.query_one(&query, &[ticker]).await?;
+    
+    // let market_cap: f64 = row.get("market_cap");
+    
+    // if !market_cap.is_finite() || market_cap <= 0.0 {
+    //     return Err(DatabaseError::InvalidCalculation(
+    //         format!("Invalid market cap value for {}: {}", ticker, market_cap)
+    //     ));
+    // }
+    
+    // Ok(market_cap)
 }
 
 // pub async fn get_sorted_universe(

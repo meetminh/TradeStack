@@ -296,7 +296,7 @@ fn format_execution_date(date: &str) -> String {
 }
 
 async fn execute_strategy_from_file(pool: &Pool) -> Result<(), Box<dyn Error>> {
-    let json_str = fs::read_to_string("printing.json")?;
+    let json_str = fs::read_to_string("test_all.json")?;
     if json_str.is_empty() {
         return Err("Empty input file".into());
     }

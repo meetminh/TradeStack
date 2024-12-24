@@ -5,8 +5,6 @@ use crate::models::{
 };
 use crate::strategy_executor::Allocation;
 use deadpool_postgres::{Client, Pool};
-use std::time::Duration;
-use tokio::time::sleep;
 use tracing::{debug, info, warn};
 
 const VALID_FUNCTIONS: [FunctionName; 10] = [
