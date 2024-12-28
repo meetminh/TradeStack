@@ -1,0 +1,391 @@
+{
+  "blocktype": "Group",
+  "name": "Aggressive Large Cap Strategy",
+  "children": [
+    {
+      "blocktype": "Weight",
+      "type": "equal",
+      "children": [
+        {
+          "blocktype": "Condition",
+          "function": {
+            "function_name": "returns_standard_deviation",
+            "window_of_days": 90,
+            "asset": "SPY"
+          },
+          "operator": "<",
+          "compare_to": {
+            "type": "fixed_value",
+            "value": 20,
+            "unit": "%"
+          },
+          "children": [
+            {
+              "blocktype": "Condition",
+              "function": {
+                "function_name": "exponential_moving_average",
+                "window_of_days": 50,
+                "asset": "QQQ"
+              },
+              "operator": ">",
+              "compare_to": {
+                "type": "function",
+                "function": {
+                  "function_name": "exponential_moving_average",
+                  "window_of_days": 200,
+                  "asset": "QQQ"
+                }
+              },
+              "children": [
+                {
+                  "blocktype": "Condition",
+                  "function": {
+                    "function_name": "cumulative_return",
+                    "window_of_days": 90,
+                    "asset": "NVDA"
+                  },
+                  "operator": ">",
+                  "compare_to": {
+                    "type": "fixed_value",
+                    "value": 15,
+                    "unit": "%"
+                  },
+                  "children": [
+                    {
+                      "blocktype": "Condition",
+                      "function": {
+                        "function_name": "returns_standard_deviation",
+                        "window_of_days": 30,
+                        "asset": "TSLA"
+                      },
+                      "operator": "<",
+                      "compare_to": {
+                        "type": "fixed_value",
+                        "value": 45,
+                        "unit": "%"
+                      },
+                      "children": [
+                        {
+                          "blocktype": "Condition",
+                          "function": {
+                            "function_name": "relative_strength_index",
+                            "window_of_days": 14,
+                            "asset": "META"
+                          },
+                          "operator": "<",
+                          "compare_to": {
+                            "type": "fixed_value",
+                            "value": 70,
+                            "unit": "%"
+                          },
+                          "children": [
+                            {
+                              "blocktype": "Condition",
+                              "function": {
+                                "function_name": "max_drawdown",
+                                "window_of_days": 60,
+                                "asset": "AMZN"
+                              },
+                              "operator": "<",
+                              "compare_to": {
+                                "type": "fixed_value",
+                                "value": 20,
+                                "unit": "%"
+                              },
+                              "children": [
+                                {
+                                  "blocktype": "Condition",
+                                  "function": {
+                                    "function_name": "exponential_moving_average",
+                                    "window_of_days": 20,
+                                    "asset": "AMD"
+                                  },
+                                  "operator": ">",
+                                  "compare_to": {
+                                    "type": "function",
+                                    "function": {
+                                      "function_name": "exponential_moving_average",
+                                      "window_of_days": 50,
+                                      "asset": "AMD"
+                                    }
+                                  },
+                                  "children": [
+                                    {
+                                      "blocktype": "Condition",
+                                      "function": {
+                                        "function_name": "cumulative_return",
+                                        "window_of_days": 30,
+                                        "asset": "MSFT"
+                                      },
+                                      "operator": ">",
+                                      "compare_to": {
+                                        "type": "fixed_value",
+                                        "value": 5,
+                                        "unit": "%"
+                                      },
+                                      "children": [
+                                        {
+                                          "blocktype": "Filter",
+                                          "sort_function": {
+                                            "function_name": "returns_standard_deviation",
+                                            "window_of_days": 90,
+                                            "asset": "SPY"
+                                          },
+                                          "select": {
+                                            "option": "Top",
+                                            "amount": 3
+                                          },
+                                          "children": [
+                                            {
+                                              "blocktype": "Asset",
+                                              "ticker": "NVDA",
+                                              "company_name": "NVIDIA Corporation",
+                                              "exchange": "NASDAQ"
+                                            },
+                                            {
+                                              "blocktype": "Asset",
+                                              "ticker": "AMD",
+                                              "company_name": "Advanced Micro Devices, Inc.",
+                                              "exchange": "NASDAQ"
+                                            },
+                                            {
+                                              "blocktype": "Asset",
+                                              "ticker": "META",
+                                              "company_name": "Meta Platforms, Inc.",
+                                              "exchange": "NASDAQ"
+                                            },
+                                            {
+                                              "blocktype": "Asset",
+                                              "ticker": "TSLA",
+                                              "company_name": "Tesla, Inc.",
+                                              "exchange": "NASDAQ"
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "blocktype": "Group",
+                                          "name": "High Momentum Tech",
+                                          "children": [
+                                            {
+                                              "blocktype": "Weight",
+                                              "type": "specified",
+                                              "allocation_type": "percentage",
+                                              "values": [40, 30, 30],
+                                              "children": [
+                                                {
+                                                  "blocktype": "Asset",
+                                                  "ticker": "NVDA",
+                                                  "company_name": "NVIDIA Corporation",
+                                                  "exchange": "NASDAQ"
+                                                },
+                                                {
+                                                  "blocktype": "Asset",
+                                                  "ticker": "AMD",
+                                                  "company_name": "Advanced Micro Devices, Inc.",
+                                                  "exchange": "NASDAQ"
+                                                },
+                                                {
+                                                  "blocktype": "Asset",
+                                                  "ticker": "META",
+                                                  "company_name": "Meta Platforms, Inc.",
+                                                  "exchange": "NASDAQ"
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "blocktype": "Group",
+                                      "name": "Semiconductor Focus",
+                                      "children": [
+                                        {
+                                          "blocktype": "Weight",
+                                          "type": "inverse_volatility",
+                                          "window_of_trading_days": 60,
+                                          "children": [
+                                            {
+                                              "blocktype": "Asset",
+                                              "ticker": "NVDA",
+                                              "company_name": "NVIDIA Corporation",
+                                              "exchange": "NASDAQ"
+                                            },
+                                            {
+                                              "blocktype": "Asset",
+                                              "ticker": "AMD",
+                                              "company_name": "Advanced Micro Devices, Inc.",
+                                              "exchange": "NASDAQ"
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "blocktype": "Group",
+                                  "name": "Tech Leaders Blend",
+                                  "children": [
+                                    {
+                                      "blocktype": "Weight",
+                                      "type": "market_cap",
+                                      "children": [
+                                        {
+                                          "blocktype": "Asset",
+                                          "ticker": "AAPL",
+                                          "company_name": "Apple Inc.",
+                                          "exchange": "NASDAQ"
+                                        },
+                                        {
+                                          "blocktype": "Asset",
+                                          "ticker": "MSFT",
+                                          "company_name": "Microsoft Corporation",
+                                          "exchange": "NASDAQ"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "blocktype": "Group",
+                              "name": "Defensive Tech",
+                              "children": [
+                                {
+                                  "blocktype": "Weight",
+                                  "type": "specified",
+                                  "allocation_type": "percentage",
+                                  "values": [60, 40],
+                                  "children": [
+                                    {
+                                      "blocktype": "Asset",
+                                      "ticker": "MSFT",
+                                      "company_name": "Microsoft Corporation",
+                                      "exchange": "NASDAQ"
+                                    },
+                                    {
+                                      "blocktype": "Asset",
+                                      "ticker": "AAPL",
+                                      "company_name": "Apple Inc.",
+                                      "exchange": "NASDAQ"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "blocktype": "Group",
+                          "name": "Moderate Growth Portfolio",
+                          "children": [
+                            {
+                              "blocktype": "Weight",
+                              "type": "market_cap",
+                              "children": [
+                                {
+                                  "blocktype": "Asset",
+                                  "ticker": "GOOGL",
+                                  "company_name": "Alphabet Inc.",
+                                  "exchange": "NASDAQ"
+                                },
+                                {
+                                  "blocktype": "Asset",
+                                  "ticker": "META",
+                                  "company_name": "Meta Platforms, Inc.",
+                                  "exchange": "NASDAQ"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "blocktype": "Group",
+                      "name": "Stable Tech Leaders",
+                      "children": [
+                        {
+                          "blocktype": "Weight",
+                          "type": "specified",
+                          "allocation_type": "percentage",
+                          "values": [50, 50],
+                          "children": [
+                            {
+                              "blocktype": "Asset",
+                              "ticker": "MSFT",
+                              "company_name": "Microsoft Corporation",
+                              "exchange": "NASDAQ"
+                            },
+                            {
+                              "blocktype": "Asset",
+                              "ticker": "AAPL",
+                              "company_name": "Apple Inc.",
+                              "exchange": "NASDAQ"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "blocktype": "Group",
+                  "name": "Conservative Tech Portfolio",
+                  "children": [
+                    {
+                      "blocktype": "Weight",
+                      "type": "inverse_volatility",
+                      "window_of_trading_days": 90,
+                      "children": [
+                        {
+                          "blocktype": "Asset",
+                          "ticker": "MSFT",
+                          "company_name": "Microsoft Corporation",
+                          "exchange": "NASDAQ"
+                        },
+                        {
+                          "blocktype": "Asset",
+                          "ticker": "AAPL",
+                          "company_name": "Apple Inc.",
+                          "exchange": "NASDAQ"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "blocktype": "Group",
+              "name": "Market Stress Defense",
+              "children": [
+                {
+                  "blocktype": "Weight",
+                  "type": "inverse_volatility",
+                  "window_of_trading_days": 90,
+                  "children": [
+                    {
+                      "blocktype": "Asset",
+                      "ticker": "MSFT",
+                      "company_name": "Microsoft Corporation",
+                      "exchange": "NASDAQ"
+                    },
+                    {
+                      "blocktype": "Asset",
+                      "ticker": "AAPL",
+                      "company_name": "Apple Inc.",
+                      "exchange": "NASDAQ"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

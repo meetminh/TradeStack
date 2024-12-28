@@ -48,15 +48,68 @@ struct StartDateResult {
     time: NaiveDateTime,
 }
 use chrono::SecondsFormat;
+// pub async fn get_start_date(
+//     client: &Client,
+//     ticker: &str,
+//     execution_date: &str,
+//     trading_days: i64,
+// ) -> Result<String, DatabaseError> {
+//     validate_ticker(ticker)?;
+//     validate_period(trading_days, "Trading days")?;
+//     tracing::debug!("Starting get_start_date");
+
+//     let query = format!(
+//         "SELECT min(time) as start_date
+//         FROM (
+//             SELECT time
+//             FROM stock_data_daily
+//             WHERE ticker = $1
+//             AND time <= '{}'
+//             ORDER BY time DESC
+//             LIMIT $2
+//         ) AS subquery",
+//         execution_date
+//     );
+
+//     let row = client.query_one(&query, &[&ticker, &trading_days]).await?;
+
+//     let time: NaiveDateTime = row.get("start_date");
+//     let start_date = DateTime::<Utc>::from_naive_utc_and_offset(time, Utc)
+//         .to_rfc3339_opts(SecondsFormat::Micros, true);
+
+//     print!("Found start date: {}", start_date);
+
+//     tracing::debug!(
+//         execution_date = %execution_date,
+//         start_date = %start_date,
+//         "Retrieved start date for historical data"
+//     );
+
+//     Ok(start_date)
+// }
+
 pub async fn get_start_date(
     client: &Client,
     ticker: &str,
     execution_date: &str,
     trading_days: i64,
 ) -> Result<String, DatabaseError> {
+    // Input validation
     validate_ticker(ticker)?;
     validate_period(trading_days, "Trading days")?;
-    tracing::debug!("Starting get_start_date");
+
+    // Validate execution_date format
+    if !execution_date.contains('T') || !execution_date.contains('Z') {
+        return Err(DatabaseError::InvalidInput(
+            "Execution date must be in format YYYY-MM-DDT16:00:00.000000Z".to_string(),
+        ));
+    }
+
+    tracing::debug!(
+        "Starting get_start_date for ticker: {}, execution_date: {}",
+        ticker,
+        execution_date
+    );
 
     let query = format!(
         "SELECT min(time) as start_date
@@ -66,22 +119,52 @@ pub async fn get_start_date(
             WHERE ticker = $1
             AND time <= '{}'
             ORDER BY time DESC
-            LIMIT $2
+            LIMIT {}
         ) AS subquery",
-        execution_date
+        &execution_date,
+        trading_days // Interpolate the limit directly
     );
 
-    let row = client.query_one(&query, &[&ticker, &trading_days]).await?;
+    // Now only passing one parameter (ticker)
+    let row = client
+        .query_one(&query, &[&ticker])
+        .await
+        .map_err(|e| match e {
+            e if e.as_db_error().map_or(false, |dbe| {
+                dbe.code() == &tokio_postgres::error::SqlState::NO_DATA
+            }) =>
+            {
+                DatabaseError::InsufficientData(format!(
+                    "No data found for ticker {} before {}",
+                    ticker, execution_date
+                ))
+            }
+            other => DatabaseError::PostgresError(other),
+        })?;
 
-    let time: NaiveDateTime = row.get("start_date");
+    // Handle null result
+    let time: Option<NaiveDateTime> = row.get("start_date");
+    let time = time.ok_or_else(|| {
+        DatabaseError::InsufficientData(format!(
+            "No valid start date found for {} data points for {}",
+            trading_days, ticker
+        ))
+    })?;
+
+    // Convert to UTC and format
     let start_date = DateTime::<Utc>::from_naive_utc_and_offset(time, Utc)
         .to_rfc3339_opts(SecondsFormat::Micros, true);
 
-    print!("Found start date: {}", start_date);
+    print!(
+        "Found start date: {} for ticker: {}, execution_date: {}",
+        start_date, ticker, execution_date
+    );
 
     tracing::debug!(
         execution_date = %execution_date,
         start_date = %start_date,
+        ticker = %ticker,
+        trading_days = %trading_days,
         "Retrieved start date for historical data"
     );
 
@@ -98,6 +181,7 @@ fn validate_ticker(ticker: &str) -> Result<(), DatabaseError> {
         .chars()
         .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '.' || c == '-')
     {
+        print!("\nError to validate ticker {}", ticker);
         return Err(DatabaseError::InvalidTicker);
     }
 
@@ -126,7 +210,7 @@ fn validate_period(period: i64, context: &str) -> Result<(), DatabaseError> {
     let max_period = match context {
         "EMA period" => 500,   // Allow up to 500 days for EMA
         "Trading days" => 500, // Also allow up to 500 days for trading days
-        _ => 100,              // Keep default 100 days for other indicators
+        _ => 260,              // Keep default 100 days for other indicators
     };
 
     if period > max_period {
@@ -153,7 +237,9 @@ pub async fn get_sma(
     validate_period(period, "SMA period")?;
 
     tracing::debug!("Getting start date for SMA calculation"); // Better logging
+    print!("\nTry to get start date for SMA calculation\n");
     let start_date = get_start_date(client, ticker, execution_date, period).await?;
+    print!("\nReceived start date for SMA calculation\n");
     tracing::debug!("Retrieved start date for SMA calculation");
 
     let query = format!(
@@ -202,7 +288,7 @@ pub async fn get_sma(
     Ok(sma)
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CurrentPrice {
     pub time: NaiveDateTime,
     pub ticker: String,
@@ -218,18 +304,21 @@ pub async fn get_current_price(
 
     // Log the query parameters
     print!(
-        "Querying current price for ticker: {} on date: {}",
+        "Querying current price for ticker: {} on date: {} ",
         ticker, execution_date
     );
 
-    let row = client
-        .query_one(
-            "SELECT time, ticker, close
+    // Interpolate execution_date into the query string
+    let query = format!(
+        "SELECT time, ticker, close
              FROM stock_data_daily
              WHERE ticker = $1
-             AND time IN $2",
-            &[&ticker, &execution_date],
-        )
+             AND time = '{}'",
+        execution_date
+    );
+
+    let row = client
+        .query_one(&query, &[&ticker])
         .await
         .map_err(|e| match e {
             e if e.as_db_error().map_or(false, |dbe| {
@@ -249,7 +338,7 @@ pub async fn get_current_price(
     let ticker: String = row.get("ticker");
     let close: f64 = row.get("close");
     print!(
-        "Found price data: Time: {}, Ticker: {}, Close: {}",
+        "\nFound price data: Time: {}, Ticker: {}, Close: {}\n",
         time, ticker, close
     );
 
@@ -402,7 +491,7 @@ pub async fn get_ema(
     Ok(ema)
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DrawdownResult {
     pub max_drawdown_percentage: f64,
     pub max_drawdown_value: f64,
@@ -855,21 +944,21 @@ pub async fn get_price_std_dev(
 
     let start_date = get_start_date(client, &ticker, &execution_date, period).await?;
 
-    let rows = client
-        .query(
-            r#"
-            SELECT
-                time,
-                close
-            FROM stock_data_daily
-            WHERE ticker = $1
-            AND time BETWEEN $2
-            AND $3
-            ORDER BY time ASC
-            "#,
-            &[&ticker, &start_date, &execution_date],
-        )
-        .await?;
+    let query = format!(
+        r#"
+        SELECT
+            time,
+            close
+        FROM stock_data_daily
+        WHERE ticker = $1
+        AND time BETWEEN '{}'
+        AND '{}'
+        ORDER BY time ASC
+        "#,
+        start_date, execution_date
+    );
+
+    let rows = client.query(&query, &[&ticker]).await?;
 
     if rows.len() < 2 {
         return Err(DatabaseError::InsufficientData(
@@ -1039,7 +1128,7 @@ pub async fn get_market_cap(
     // For now, return a dummy value
     Ok(1000000.0)
     // validate_ticker(ticker)?;
-    
+
     // let query = format!(
     //     "SELECT close * shares_outstanding as market_cap
     //      FROM stock_data_daily
@@ -1051,15 +1140,15 @@ pub async fn get_market_cap(
     // );
 
     // let row = client.query_one(&query, &[ticker]).await?;
-    
+
     // let market_cap: f64 = row.get("market_cap");
-    
+
     // if !market_cap.is_finite() || market_cap <= 0.0 {
     //     return Err(DatabaseError::InvalidCalculation(
     //         format!("Invalid market cap value for {}: {}", ticker, market_cap)
     //     ));
     // }
-    
+
     // Ok(market_cap)
 }
 

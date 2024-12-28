@@ -6,7 +6,7 @@ mod models;
 mod strategy_executor;
 mod validate_json;
 
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{TimeZone, Utc};
 use deadpool_postgres::{Client, Config, Pool};
 use psutil::process::Process;
 use std::error::Error;
@@ -93,7 +93,7 @@ struct DbConfig {
 impl Default for DbConfig {
     fn default() -> Self {
         Self {
-            host: "questdb.go-server-devcontainer.orb.local".to_string(),
+            host: "questdb.orb.local".to_string(),
             port: 8812,
             user: "admin".to_string(),
             password: "quest".to_string(),
@@ -253,22 +253,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
     info!("Connected to QuestDB version: {}", version);
 
     // Test parameters
-    // let test_params = TestParameters {
-    //     ticker: "AAPL".to_string(),
-    //     execution_date: "2024-12-02".to_string(),
-    //     period: 20,
-    // };
+    let test_params = TestParameters {
+        ticker: "AAPL".to_string(),
+        execution_date: "2024-12-02".to_string(),
+        period: 20,
+    };
 
-    // Run analysis
-    // println!("\n=== Testing Database Functions ===");
-    // query_stock_data(&client, &test_params.execution_date).await?;
-    // run_market_analysis(
-    //     &client,
-    //     &test_params.ticker,
-    //     &format_execution_date(&test_params.execution_date),
-    //     test_params.period,
-    // )
-    // .await?;
+    //Run analysis
+    println!("\n=== Testing Database Functions ===");
+    query_stock_data(&client, &test_params.execution_date).await?;
+    run_market_analysis(
+        &client,
+        &test_params.ticker,
+        &format_execution_date(&test_params.execution_date),
+        test_params.period,
+    )
+    .await?;
 
     // Execute strategy from JSON
     execute_strategy_from_file(&pool).await?;
@@ -296,19 +296,19 @@ fn format_execution_date(date: &str) -> String {
 }
 
 async fn execute_strategy_from_file(pool: &Pool) -> Result<(), Box<dyn Error>> {
-    let json_str = fs::read_to_string("test_all.json")?;
+    let json_str = fs::read_to_string("printing.json")?;
     if json_str.is_empty() {
         return Err("Empty input file".into());
     }
 
     let strategy = validate_json::deserialize_json(&json_str)?;
     let strategy_execution_date = Utc
-        .with_ymd_and_hms(2024, 11, 29, 16, 0, 0)
+        .with_ymd_and_hms(2024, 12, 26, 16, 0, 0)
         .unwrap()
         .format("%Y-%m-%dT%H:%M:%S.000000Z")
         .to_string();
 
-    info!("Executing strategy...");
+    info!("\nExecuting strategy...on{}\n", strategy_execution_date);
     let allocations =
         strategy_executor::execute_strategy(&strategy, pool, &strategy_execution_date).await?;
 

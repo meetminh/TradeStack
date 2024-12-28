@@ -35,3 +35,24 @@ get_price_std_dev (Price Standard Deviation)
 >
 - Measures price volatility over period
 Higher values indicate more volatile price action
+
+
+
+## SQL QUERIES
+
+Changed from:
+
+rustCopyLIMIT $2
+to:
+rustCopyLIMIT {}
+
+Changed parameter passing from:
+
+rustCopyquery_one(&query, &[&ticker, &trading_days])
+to:
+rustCopyquery_one(&query, &[&ticker])
+This follows QuestDB's best practices where:
+
+Only ticker is passed as a parameter ($1)
+Dates are interpolated in the query string
+Numeric values (like LIMIT) can be safely interpolated
