@@ -7,7 +7,7 @@ use crate::strategy_executor::Allocation;
 use deadpool_postgres::{Client, Pool};
 use tracing::{debug, info, warn};
 
-const VALID_FUNCTIONS: [FunctionName; 10] = [
+const VALID_FUNCTIONS: [FunctionName; 9] = [
     FunctionName::CurrentPrice,
     FunctionName::SimpleMovingAverage,
     FunctionName::ExponentialMovingAverage,
@@ -17,7 +17,6 @@ const VALID_FUNCTIONS: [FunctionName; 10] = [
     FunctionName::RelativeStrengthIndex,
     FunctionName::PriceStandardDeviation,
     FunctionName::ReturnsStandardDeviation,
-    FunctionName::MarketCap,
     FunctionName::MaxDrawdown,
 ];
 
@@ -238,12 +237,6 @@ async fn calculate_asset_value(
             .await?;
 
             Ok(returns_std)
-        }
-        FunctionName::MarketCap => {
-            let market_cap =
-                database_functions::get_market_cap(&client, ticker, execution_date).await?;
-
-            Ok(market_cap)
         }
     }
 }

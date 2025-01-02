@@ -471,16 +471,6 @@ async fn evaluate_function(
 
             Ok(returns_std)
         }
-        FunctionName::MarketCap => {
-            let market_cap = database_functions::get_market_cap(
-                &client, // Pass the client instead of the pool
-                &function.asset,
-                execution_date,
-            )
-            .await?;
-
-            Ok(market_cap)
-        }
     }
 }
 fn normalize_weights(allocations: &[Allocation]) -> Result<Vec<Allocation>, DatabaseError> {

@@ -118,10 +118,6 @@ Every block must have:
 3. `"type": "inverse_volatility"`
    - Requires: `window_of_trading_days` (positive integer)
    - Weights inversely proportional to asset volatility
-   
-4. `"type": "market_cap"`
-   - No additional attributes needed
-   - Weights based on relative market capitalization
 
 ### 3. Asset Block
 ```json
@@ -218,53 +214,47 @@ Every block must have:
    - Returns current price value in $
    - Only requires asset
 
-2. `market_cap`:
-   - No window_of_days needed
-   - Returns market capitalization value in $
-   - Only requires asset
-
-3. `cumulative_return`:
+2. `cumulative_return`:
    - Requires window_of_days (max: 252 days)
    - Returns value in %
    - Requires asset
 
-4. `simple_moving_average`:
+3. `simple_moving_average`:
    - Requires window_of_days (max: 252 days)
    - Returns moving average price in $
    - Requires asset
 
-5. `exponential_moving_average`:
+4. `exponential_moving_average`:
    - Requires window_of_days (max: 500 days)
    - Returns moving average price in $
    - Requires asset
 
-6. `moving_average_of_returns`:
-   - Requires window_of_days (max: 252 days)
+5. `moving_average_of_returns`:   - Requires window_of_days (max: 252 days)
    - Returns average of returns in %
    - Requires asset
 
-7. `relative_strength_index`:
+6. `relative_strength_index`:
    - Requires window_of_days (max: 252 days)
    - Returns RSI value in range [0, 100]
    - Requires asset
 
-8. `price_standard_deviation`:
+7. `price_standard_deviation`:
    - Requires window_of_days (max: 252 days)
    - Returns standard deviation of prices in $
    - Requires asset
 
-9. `returns_standard_deviation`:
+8. `returns_standard_deviation`:
    - Requires window_of_days (max: 252 days)
    - Returns standard deviation of returns in %
    - Requires asset
 
-10. `max_drawdown`:
+9. `max_drawdown`:
     - Requires window_of_days (max: 252 days)
     - Returns maximum drawdown in %
     - Requires asset
 
 ## Function Rules
-1. `current_price` and `market_cap`:
+1. `current_price`:
    - No window_of_days needed
    - Only requires asset
 
@@ -317,9 +307,10 @@ Every block must have:
 1. Group Block:
    - First child must be Weight Block
    - Weight Block must have valid type
+   - Name must be a non-empty string
 
 2. Weight Block:
-   - type must be one of: ["equal", "specified", "inverse_volatility", "market_cap"]
+   - type must be one of: ["equal", "specified", "inverse_volatility"]
    - For "specified":
      - values array must have same length as children
      - allocation_type must be "percentage" or "fraction"
@@ -336,6 +327,24 @@ Every block must have:
    - Only Asset blocks as children
    - Valid sort_function
    - Valid select criteria
+
+
+## Error Handling
+
+### Common Errors
+- Insufficient data for calculation
+- Invalid date range
+- Invalid period (must be positive)
+- Invalid ticker
+- Invalid function parameters
+- Invalid weight allocation
+- Invalid filter configuration
+
+### Error Codes
+- DatabaseError::InsufficientData
+- DatabaseError::InvalidDateRange
+- DatabaseError::InvalidPeriod
+- DatabaseError::InvalidInput
 
 MERMAID DIAGRAM:
 

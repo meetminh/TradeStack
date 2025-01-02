@@ -124,7 +124,6 @@ pub enum FunctionName {
     RelativeStrengthIndex,
     PriceStandardDeviation,
     ReturnsStandardDeviation,
-    MarketCap,
     MaxDrawdown,
 }
 
@@ -132,7 +131,7 @@ pub enum FunctionName {
 impl FunctionName {
     pub fn requires_window_of_days(&self) -> bool {
         match self {
-            FunctionName::CurrentPrice | FunctionName::MarketCap => false,
+            FunctionName::CurrentPrice => false,
             FunctionName::MaxDrawdown => true,
             _ => true,
         }

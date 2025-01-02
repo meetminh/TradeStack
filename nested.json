@@ -23,7 +23,7 @@
             {
               "blocktype": "Condition",
               "function": {
-                "function_name": "exponential_moving_average",
+                "function_name": "moving_average_of_returns",
                 "window_of_days": 50,
                 "asset": "QQQ"
               },

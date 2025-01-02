@@ -11,7 +11,7 @@
         {
           "blocktype": "Condition",
           "function": {
-            "function_name": "cumulative_return",
+            "function_name": "moving_average_of_returns",
             "window_of_days": 100,
             "asset": "SPY"
           },

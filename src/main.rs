@@ -296,14 +296,14 @@ fn format_execution_date(date: &str) -> String {
 }
 
 async fn execute_strategy_from_file(pool: &Pool) -> Result<(), Box<dyn Error>> {
-    let json_str = fs::read_to_string("printing.json")?;
+    let json_str = fs::read_to_string("test_all.json")?;
     if json_str.is_empty() {
         return Err("Empty input file".into());
     }
 
     let strategy = validate_json::deserialize_json(&json_str)?;
     let strategy_execution_date = Utc
-        .with_ymd_and_hms(2024, 12, 26, 16, 0, 0)
+        .with_ymd_and_hms(2024, 12, 31, 16, 0, 0)
         .unwrap()
         .format("%Y-%m-%dT%H:%M:%S.000000Z")
         .to_string();
