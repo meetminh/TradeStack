@@ -3,24 +3,6 @@
 version = 4
 
 [[package]]
-name = "TradeStack"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "deadpool-postgres",
- "dotenv",
- "psutil",
- "serde",
- "serde_json",
- "sysinfo",
- "thiserror 2.0.3",
- "tokio",
- "tokio-postgres",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "addr2line"
 version = "0.24.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1133,6 +1115,24 @@ dependencies = [
  "thread_local",
  "tracing-core",
  "tracing-log",
+]
+
+[[package]]
+name = "trade_stack"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "deadpool-postgres",
+ "dotenv",
+ "psutil",
+ "serde",
+ "serde_json",
+ "sysinfo",
+ "thiserror 2.0.3",
+ "tokio",
+ "tokio-postgres",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

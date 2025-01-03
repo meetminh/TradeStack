@@ -344,7 +344,7 @@ mod tests {
             period: 20,
         };
 
-        let current_price = block::database_functions::get_current_price(
+        let current_price = market::database_functions::get_current_price(
             &client,
             &test_params.ticker,
             &format_execution_date(&test_params.execution_date),
