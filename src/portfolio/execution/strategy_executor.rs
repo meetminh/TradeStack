@@ -1,14 +1,15 @@
-use crate::block::database_functions::{self, DatabaseError};
-use crate::block::filter::apply_filter;
-use crate::models::{
+use crate::market::database_functions::{self, DatabaseError};
+use crate::portfolio::blocks::filter::apply_filter;
+use crate::portfolio::blocks::models::{
     Block, BlockAttributes, CompareToValue, ComparisonOperator, FunctionDefinition, FunctionName,
     SelectOption, WeightType,
 };
-use deadpool_postgres::{Client, Pool}; // Import Pool and Client from deadpool-postgres
+
+
+use deadpool_postgres::{Pool}; // Import Pool and Client from deadpool-postgres
 use std::future::Future;
 use std::pin::Pin;
-use tokio_postgres::Error as PgError;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 #[derive(Debug, Clone)]
 pub struct Allocation {

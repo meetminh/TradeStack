@@ -1,11 +1,10 @@
-use crate::block::database_functions::{self, DatabaseError};
-use crate::models::{
-    Block, BlockAttributes, FunctionDefinition, FunctionName, SelectConfig, SelectOption,
-    SortFunction,
+use crate::market::database_functions::{self, DatabaseError};
+use crate::portfolio::blocks::models::{
+    Block, BlockAttributes, FunctionDefinition, FunctionName, SelectConfig, SelectOption, SortFunction,
 };
-use crate::strategy_executor::Allocation;
-use deadpool_postgres::{Client, Pool};
-use tracing::{debug, info, warn};
+use crate::portfolio::execution::strategy_executor::Allocation;
+use deadpool_postgres::Pool;
+use tracing::{debug, warn};
 
 const VALID_FUNCTIONS: [FunctionName; 9] = [
     FunctionName::CurrentPrice,

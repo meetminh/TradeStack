@@ -1,10 +1,12 @@
-mod block {
-    pub mod database_functions;
-    pub mod filter;
-}
-mod models;
-mod strategy_executor;
-mod validate_json;
+mod portfolio;
+mod market;
+use crate::market::database_functions::{self, DatabaseError};
+use crate::portfolio::execution::strategy_executor;
+use portfolio::construction::validate_json;
+use crate::market::database_functions::{
+    get_current_price, get_sma, get_ema, get_cumulative_return, get_ma_of_returns,
+    get_rsi, get_max_drawdown, get_returns_std_dev,
+};
 
 use chrono::{TimeZone, Utc};
 use deadpool_postgres::{Client, Config, Pool};
@@ -74,7 +76,6 @@ impl PerformanceMonitor {
     }
 }
 
-use crate::block::database_functions::DatabaseError;
 
 // Constants
 const PAUSE_DURATION_MS: u64 = 0;
@@ -161,10 +162,17 @@ async fn run_market_analysis(
     execution_date: &str,
     period: i64,
 ) -> Result<(), Box<dyn Error>> {
-    use block::database_functions::*;
-
+   
+    let price_result = get_current_price(client, ticker, execution_date).await;
+    match price_result {
+        Ok(price) => info!(
+            "Current price for {} on {}: ${:.2}",
+            price.ticker, price.time, price.close
+        ),
+        Err(e) => error!("Failed to get current price: {}", e),
+    }
     // Current Price
-    if let Ok(price) = get_current_price(client, ticker, execution_date).await {
+    if let Ok(price) = database_functions::get_current_price(client, ticker, execution_date).await {
         info!(
             "Current price for {} on {}: ${:.2}",
             price.ticker, price.time, price.close

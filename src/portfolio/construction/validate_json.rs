@@ -1,8 +1,9 @@
 //! Investment portfolio block system validator.
 //! Implements validation rules for all block types and their configurations.
 
-use crate::models::*;
-use std::fmt;
+use crate::portfolio::blocks::models::{
+    Block, BlockAttributes, BlockType, WeightType, AllocationType, CompareToValue, FunctionDefinition, FunctionName,
+};
 use thiserror::Error;
 
 /// Custom error types for validation failures
