@@ -5,8 +5,7 @@ use crate::portfolio::blocks::models::{
     SelectOption, WeightType,
 };
 
-
-use deadpool_postgres::{Pool}; // Import Pool and Client from deadpool-postgres
+use deadpool_postgres::Pool; // Import Pool and Client from deadpool-postgres
 use std::future::Future;
 use std::pin::Pin;
 use tracing::{debug, info};
@@ -40,7 +39,7 @@ pub async fn execute_strategy(
     pool: &Pool,
     execution_date: &String,
 ) -> Result<Vec<Allocation>, DatabaseError> {
-    info!("Starting strategy execution for date: {}", execution_date);
+    //info!("Starting strategy execution for date: {}", execution_date);
     let allocations = execute_block(block, pool, execution_date, 1.0).await?;
     normalize_weights(&allocations)
 }
@@ -357,7 +356,7 @@ async fn evaluate_function(
     execution_date: &String,
 ) -> Result<f64, DatabaseError> {
     debug!("Evaluating function with date: {}", execution_date);
-    info!("Start eval");
+    //info!("Start eval");
 
     // Get a client from the pool
     let client = pool.get().await?;

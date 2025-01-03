@@ -156,10 +156,10 @@ pub async fn get_start_date(
     let start_date = DateTime::<Utc>::from_naive_utc_and_offset(time, Utc)
         .to_rfc3339_opts(SecondsFormat::Micros, true);
 
-    print!(
-        "Found start date: {} for ticker: {}, execution_date: {}",
-        start_date, ticker, execution_date
-    );
+    // print!(
+    //     "Found start date: {} for ticker: {}, execution_date: {}",
+    //     start_date, ticker, execution_date
+    // );
 
     tracing::debug!(
         execution_date = %execution_date,
@@ -238,10 +238,10 @@ pub async fn get_sma(
     validate_period(period, "SMA period")?;
 
     tracing::debug!("Getting start date for SMA calculation"); // Better logging
-    print!("\nTry to get start date for SMA calculation\n");
+                                                               // print!("\nTry to get start date for SMA calculation\n");
     let start_date = get_start_date(client, ticker, execution_date, period).await?;
-    print!("\nReceived start date for SMA calculation\n");
-    tracing::debug!("Retrieved start date for SMA calculation");
+    // print!("\nReceived start date for SMA calculation\n");
+    // tracing::debug!("Retrieved start date for SMA calculation");
 
     let query = format!(
         r#"
@@ -304,10 +304,10 @@ pub async fn get_current_price(
     validate_ticker(&ticker)?;
 
     // Log the query parameters
-    print!(
-        "Querying current price for ticker: {} on date: {} ",
-        ticker, execution_date
-    );
+    // print!(
+    //     "Querying current price for ticker: {} on date: {} ",
+    //     ticker, execution_date
+    // );
 
     // Interpolate execution_date into the query string
     let query = format!(
@@ -338,10 +338,10 @@ pub async fn get_current_price(
     let time: chrono::NaiveDateTime = row.get("time");
     let ticker: String = row.get("ticker");
     let close: f64 = row.get("close");
-    print!(
-        "\nFound price data: Time: {}, Ticker: {}, Close: {}\n",
-        time, ticker, close
-    );
+    // print!(
+    //     "\nFound price data: Time: {}, Ticker: {}, Close: {}\n",
+    //     time, ticker, close
+    // );
 
     Ok(CurrentPrice {
         time,
@@ -1117,7 +1117,6 @@ pub async fn get_returns_std_dev(
 
     Ok(std_dev)
 }
-
 
 use deadpool_postgres::PoolError;
 #[cfg(test)]
