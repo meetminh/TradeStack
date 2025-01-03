@@ -1,6 +1,5 @@
 mod portfolio;
 mod market;
-
 use crate::market::database_functions::{self, DatabaseError};
 use crate::portfolio::execution::strategy_executor;
 use portfolio::construction::validate_json;
@@ -9,7 +8,7 @@ use crate::market::database_functions::{
     get_rsi, get_max_drawdown, get_returns_std_dev,
 };
 
-use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use chrono::{TimeZone, Utc};
 use deadpool_postgres::{Client, Config, Pool};
 use psutil::process::Process;
 use std::error::Error;
@@ -79,6 +78,7 @@ impl PerformanceMonitor {
     }
 }
 
+
 // Constants
 const PAUSE_DURATION_MS: u64 = 0;
 const DEFAULT_RSI_PERIOD: i64 = 14;
@@ -124,34 +124,11 @@ fn create_pool() -> Pool {
     .expect("Failed to create connection pool")
 }
 
-// Helper function to parse a date string into a NaiveDate
-fn parse_date(date_str: &str) -> Result<NaiveDate, chrono::format::ParseError> {
-    NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
-}
-
-// Helper function to format a NaiveDate into an ISO 8601 string
-fn format_date_iso(date: NaiveDate) -> String {
-    date.format("%Y-%m-%d").to_string()
-}
-
-// Helper function to create a DateTime<Utc> from a NaiveDate and time
-fn create_datetime(date: NaiveDate, hour: u32, minute: u32, second: u32) -> DateTime<Utc> {
-    Utc.from_local_datetime(&date.and_hms_opt(hour, minute, second).unwrap()).unwrap()
-}
-
 // Query handling
 async fn query_stock_data(client: &Client, execution_date: &str) -> Result<(), DatabaseError> {
     info!("Querying stock_data table for date: {}", execution_date);
 
-    // Parse the execution date into a NaiveDate
-    let execution_date = parse_date(execution_date)?;
-
-    // Format the execution time as an ISO 8601 timestamp
-    let execution_time = format!(
-        "{}T16:00:00.000000Z",
-        execution_date.format("%Y-%m-%d")
-    );
-
+    let execution_time = format!("{}T16", execution_date);
     let query = format!(
         "SELECT * FROM stock_data_daily WHERE time = '{}' LIMIT 10",
         execution_time
@@ -187,16 +164,8 @@ async fn run_market_analysis(
     execution_date: &str,
     period: i64,
 ) -> Result<(), Box<dyn Error>> {
-    // Parse the execution date into a NaiveDate
-    let execution_date = parse_date(execution_date)?;
-
-    // Format the execution date as an ISO 8601 timestamp
-    let execution_time = create_datetime(execution_date, 16, 0, 0)
-        .format("%Y-%m-%dT%H:%M:%S.000000Z")
-        .to_string();
-
-    // Get the current price
-    let price_result = get_current_price(client, ticker, &execution_time).await;
+   
+    let price_result = get_current_price(client, ticker, execution_date).await;
     match price_result {
         Ok(price) => info!(
             "Current price for {} on {}: ${:.2}",
@@ -204,26 +173,34 @@ async fn run_market_analysis(
         ),
         Err(e) => error!("Failed to get current price: {}", e),
     }
+    // Current Price
+    if let Ok(price) = database_functions::get_current_price(client, ticker, execution_date).await {
+        info!(
+            "Current price for {} on {}: ${:.2}",
+            price.ticker, price.time, price.close
+        );
+    }
 
     // Technical Indicators
+    // Handle each indicator separately since they might return different types
     let indicators = [
-        ("SMA", get_sma(client, ticker, &execution_time, period).await),
-        ("EMA", get_ema(client, ticker, &execution_time, period).await),
+        ("SMA", get_sma(client, ticker, execution_date, period).await),
+        ("EMA", get_ema(client, ticker, execution_date, period).await),
         (
             "Cumulative Return",
-            get_cumulative_return(client, ticker, &execution_time, period).await,
+            get_cumulative_return(client, ticker, execution_date, period).await,
         ),
         (
             "MA of Returns",
-            get_ma_of_returns(client, ticker, &execution_time, period).await,
+            get_ma_of_returns(client, ticker, execution_date, period).await,
         ),
         (
             "RSI",
-            get_rsi(client, ticker, &execution_time, DEFAULT_RSI_PERIOD).await,
+            get_rsi(client, ticker, execution_date, DEFAULT_RSI_PERIOD).await,
         ),
         (
             "Max Drawdown",
-            get_max_drawdown(client, ticker, &execution_time, period)
+            get_max_drawdown(client, ticker, execution_date, period)
                 .await
                 .map(|d| d.max_drawdown_percentage),
         ),
@@ -237,12 +214,27 @@ async fn run_market_analysis(
     }
 
     // Risk Metrics
-    if let Ok(drawdown) = get_max_drawdown(client, ticker, &execution_time, period).await {
+    if let Ok(drawdown) = get_max_drawdown(client, ticker, execution_date, period).await {
         info!("Max Drawdown: {:.2}%", drawdown.max_drawdown_percentage);
     }
 
-    if let Ok(std_dev) = get_returns_std_dev(client, ticker, &execution_time, period).await {
+    if let Ok(std_dev) = get_returns_std_dev(client, ticker, execution_date, period).await {
         info!("Returns StdDev: {:.2}%", std_dev);
+    }
+
+    // Initialize performance monitoring for the entire program
+    let mut perf_monitor = match PerformanceMonitor::new() {
+        Ok(monitor) => monitor,
+        Err(e) => {
+            warn!("Failed to initialize performance monitoring: {}", e);
+            return Err(e);
+        }
+    };
+
+    // Log performance metrics for market analysis
+    if let Ok(metrics) = perf_monitor.measure() {
+        info!("Market Analysis Performance:");
+        metrics.log();
     }
 
     Ok(())
@@ -277,56 +269,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
         period: 20,
     };
 
-    // Run analysis
+    //Run analysis
     println!("\n=== Testing Database Functions ===");
     query_stock_data(&client, &test_params.execution_date).await?;
     run_market_analysis(
         &client,
         &test_params.ticker,
-        &test_params.execution_date,
+        &format_execution_date(&test_params.execution_date),
         test_params.period,
     )
     .await?;
 
-    // Execute strategy from JSON (commented out)
-    // execute_strategy_from_file(&pool).await?;
-
-    // Execute strategy over a time span
-    let start_date = parse_date("2023-01-01")?; // Parse into NaiveDate
-    let end_date = Some(parse_date("2025-01-01")?); // Parse into Option<NaiveDate>
-
-    // Format dates for display or queries
-    let start_date_iso = format_date_iso(start_date);
-    let end_date_iso = end_date.map(|d| format_date_iso(d));
-
-    // Create a DateTime<Utc> for strategy execution
-    let strategy_execution_date = create_datetime(parse_date("2024-12-31")?, 16, 0, 0)
-        .format("%Y-%m-%dT%H:%M:%S.000000Z")
-        .to_string();
-
-    let json_str = fs::read_to_string("printing.json")?;
-    if json_str.is_empty() {
-        return Err("Empty input file".into());
-    }
-
-    let strategy = validate_json::deserialize_json(&json_str)?;
-
-    let results = execute_strategy_over_time_span(
-        &pool,
-        &strategy,
-        &start_date_iso,
-        end_date_iso.as_deref(),
-        "monthly",
-    ).await?;
-
-    // Print results
-    println!("\nPortfolio Allocations Over Time:");
-    for (date, allocations) in results {
-        println!("Date: {}", date);
-        for allocation in allocations {
-            println!("  {}: {:.2}%", allocation.ticker, allocation.weight * 100.0);
-        }
-    }
+    // Execute strategy from JSON
+    execute_strategy_from_file(&pool).await?;
 
     // Log final program performance metrics
     if let Ok(metrics) = program_monitor.measure() {
@@ -342,6 +297,38 @@ struct TestParameters {
     ticker: String,
     execution_date: String,
     period: i64,
+}
+
+fn format_execution_date(date: &str) -> String {
+    let datetime = chrono::DateTime::parse_from_rfc3339(&format!("{}T16:00:00.000000Z", date))
+        .expect("Failed to parse datetime");
+    datetime.to_rfc3339_opts(chrono::SecondsFormat::Micros, true)
+}
+
+async fn execute_strategy_from_file(pool: &Pool) -> Result<(), Box<dyn Error>> {
+    let json_str = fs::read_to_string("printing.json")?;
+    if json_str.is_empty() {
+        return Err("Empty input file".into());
+    }
+
+    let strategy = validate_json::deserialize_json(&json_str)?;
+    let strategy_execution_date = Utc
+        .with_ymd_and_hms(2024, 12, 31, 16, 0, 0)
+        .unwrap()
+        .format("%Y-%m-%dT%H:%M:%S.000000Z")
+        .to_string();
+
+    info!("\nExecuting strategy...on{}\n", strategy_execution_date);
+    let allocations =
+        strategy_executor::execute_strategy(&strategy, pool, &strategy_execution_date).await?;
+
+    // Print results
+    println!("\nFinal Portfolio Allocations:");
+    for allocation in allocations {
+        println!("{}: {:.2}%", allocation.ticker, allocation.weight * 100.0);
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -362,7 +349,7 @@ mod tests {
         let current_price = market::database_functions::get_current_price(
             &client,
             &test_params.ticker,
-            &test_params.execution_date,
+            &format_execution_date(&test_params.execution_date),
         )
         .await?;
 
