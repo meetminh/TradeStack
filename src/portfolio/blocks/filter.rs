@@ -1,6 +1,7 @@
-use crate::market::database_functions::{self, DatabaseError};
+use crate::market::database_functions_old::{self, DatabaseError};
 use crate::portfolio::blocks::models::{
-    Block, BlockAttributes, FunctionDefinition, FunctionName, SelectConfig, SelectOption, SortFunction,
+    Block, BlockAttributes, FunctionDefinition, FunctionName, SelectConfig, SelectOption,
+    SortFunction,
 };
 use crate::portfolio::execution::strategy_executor::Allocation;
 use deadpool_postgres::Pool;
@@ -134,12 +135,12 @@ async fn calculate_asset_value(
     match function.function_name {
         FunctionName::CurrentPrice => {
             let price =
-                database_functions::get_current_price(&client, ticker, execution_date).await?;
+                database_functions_old::get_current_price(&client, ticker, execution_date).await?;
 
             Ok(price.close)
         }
         FunctionName::SimpleMovingAverage => {
-            let sma = database_functions::get_sma(
+            let sma = database_functions_old::get_sma(
                 &client,
                 ticker,
                 execution_date,
@@ -150,7 +151,7 @@ async fn calculate_asset_value(
             Ok(sma)
         }
         FunctionName::ExponentialMovingAverage => {
-            let ema = database_functions::get_ema(
+            let ema = database_functions_old::get_ema(
                 &client,
                 ticker,
                 execution_date,
@@ -161,7 +162,7 @@ async fn calculate_asset_value(
             Ok(ema)
         }
         FunctionName::CumulativeReturn => {
-            let cum_return = database_functions::get_cumulative_return(
+            let cum_return = database_functions_old::get_cumulative_return(
                 &client,
                 ticker,
                 execution_date,
@@ -183,7 +184,7 @@ async fn calculate_asset_value(
         //     Ok(ma_price)
         // }
         FunctionName::MaxDrawdown => {
-            let result = database_functions::get_max_drawdown(
+            let result = database_functions_old::get_max_drawdown(
                 &client,
                 &function.asset,
                 execution_date,
@@ -194,7 +195,7 @@ async fn calculate_asset_value(
             Ok(result.max_drawdown_percentage) // Note we use the percentage field
         }
         FunctionName::MovingAverageOfReturns => {
-            let ma_returns = database_functions::get_ma_of_returns(
+            let ma_returns = database_functions_old::get_ma_of_returns(
                 &client,
                 ticker,
                 execution_date,
@@ -205,7 +206,7 @@ async fn calculate_asset_value(
             Ok(ma_returns)
         }
         FunctionName::RelativeStrengthIndex => {
-            let rsi = database_functions::get_rsi(
+            let rsi = database_functions_old::get_rsi(
                 &client,
                 ticker,
                 execution_date,
@@ -216,7 +217,7 @@ async fn calculate_asset_value(
             Ok(rsi)
         }
         FunctionName::PriceStandardDeviation => {
-            let price_std = database_functions::get_price_std_dev(
+            let price_std = database_functions_old::get_price_std_dev(
                 &client,
                 ticker,
                 execution_date,
@@ -227,7 +228,7 @@ async fn calculate_asset_value(
             Ok(price_std)
         }
         FunctionName::ReturnsStandardDeviation => {
-            let returns_std = database_functions::get_returns_std_dev(
+            let returns_std = database_functions_old::get_returns_std_dev(
                 &client,
                 ticker,
                 execution_date,

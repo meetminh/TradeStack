@@ -1,26 +1,70 @@
-import yfinance as yf
-from datetime import datetime, timedelta
+import csv
+from datetime import datetime
+from questdb.ingress import Sender, TimestampNanos, IngressError
+import sys
+import os
+
+# Define the folder containing the CSV files
+data_folder = 'testdata'
+
+# Function to set the timestamp to 16:00:00 UTC
 
 
-def get_latest_stock_date():
-    # Use a popular stock that's likely to have up-to-date data
-    ticker = yf.Ticker("AAPL")
+def set_to_16pm_utc(date_str):
+    # Parse the date
+    date = datetime.strptime(date_str, '%Y-%m-%d')
+    # Set the time to 16:00:00 UTC
+    utc_time = date.replace(hour=16, minute=0, second=0, microsecond=0)
+    return utc_time
 
-    # Start from today and go back a few days to ensure we catch the latest trading day
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=7)
-
-    # Fetch the data
-    df = ticker.history(start=start_date, end=end_date)
-
-    if not df.empty:
-        latest_date = df.index[-1]
-        print(f"Latest available date for AAPL: {latest_date}")
-        return latest_date
-    else:
-        print("No data available in the specified range.")
-        return None
+# Insert data into QuestDB
 
 
-if __name__ == "__main__":
-    get_latest_stock_date()
+def insert_into_questdb(csv_file, ticker):
+    try:
+        # Connect to QuestDB
+        conf = 'http::addr=questdb.orb.local:9000;'
+        with Sender.from_conf(conf) as sender:
+            with open(csv_file, mode='r') as file:
+                reader = csv.DictReader(file)
+                for row in reader:
+                    # Set the timestamp to 16:00:00 UTC
+                    utc_time = set_to_16pm_utc(row['date'])
+                    # Convert the timestamp to nanoseconds as an integer
+                    timestamp_nanos = int(utc_time.timestamp() * 1e9)
+                    # Insert the data
+                    sender.row(
+                        'stock_data_daily',
+                        symbols={'ticker': ticker},
+                        columns={
+                            'close': float(row['close']),
+                            'high': float(row['high']),
+                            'low': float(row['low']),
+                            'open': float(row['open']),
+                            'volume': int(row['volume']),
+                            'adjClose': float(row['adjClose']),
+                            'adjHigh': float(row['adjHigh']),
+                            'adjLow': float(row['adjLow']),
+                            'adjOpen': float(row['adjOpen']),
+                            'adjVolume': int(row['adjVolume']),
+                            'divCash': float(row['divCash']),
+                            'splitFactor': float(row['splitFactor'])
+                        },
+                        at=TimestampNanos(timestamp_nanos)
+                    )
+            # Flush any remaining rows
+            sender.flush()
+        print(f"Data from {csv_file} inserted into QuestDB")
+    except IngressError as e:
+        sys.stderr.write(f'Got error: {e}\n')
+
+
+# Iterate over all files in the testdata folder
+for filename in os.listdir(data_folder):
+    if filename.endswith('.csv'):
+        # Extract the ticker symbol from the filename
+        ticker = filename.replace('prices.csv', '')
+        # Construct the full file path
+        input_file = os.path.join(data_folder, filename)
+        # Insert the data into QuestDB
+        insert_into_questdb(input_file, ticker)

@@ -485,20 +485,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let json_str = fs::read_to_string("printing.json")?;
     let strategy = validate_json::deserialize_json(&json_str)?;
 
-    let start_date = "2014-01-01";
+    let start_date = "2015-01-01";
     let end_date = Some("2025-01-01");
 
-    // Execute sequential version
-    let mut sequential_monitor = PerformanceMonitor::new()?;
-    let sequential_results = execute_strategy_over_time_span_sequential(
-        &pool, &strategy, start_date, end_date, "monthly",
-    )
-    .await?;
-    let sequential_metrics = sequential_monitor.measure()?;
-    sequential_metrics.log("Sequential");
+    //Execute sequential version
+    // let mut sequential_monitor = PerformanceMonitor::new()?;
+    // let sequential_results = execute_strategy_over_time_span_sequential(
+    //     &pool, &strategy, start_date, end_date, "monthly",
+    // )
+    // .await?;
+    // let sequential_metrics = sequential_monitor.measure()?;
+    // sequential_metrics.log("Sequential");
 
-    // Print sequential results
-    println!("\nSequential Results:");
+    // // Print sequential results
+    // println!("\nSequential Results:");
     //print_results(&sequential_results);
 
     // Execute parallel version
